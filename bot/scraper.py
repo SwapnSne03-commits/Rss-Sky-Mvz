@@ -37,6 +37,62 @@ class WebsiteScraper:
     def get_homepage(self) -> str:
         return self.fetch(SITE_URL)
 
+    def get_download_links(self, movie_url: str) -> list[str]:
+        html = self.fetch(movie_url)
+
+        soup = BeautifulSoup(
+            html,
+            "lxml",
+        )
+
+        links = []
+        seen_links = set()
+
+        keywords = (
+            "GOOGLE DRIVE",
+            "SERVER 01",
+            "SERVER 02",
+            "SERVER 03",
+            "SERVER 04",
+            "SERVER 05",
+            "SERVER 06",
+            "1080P WEB-DL",
+        )
+
+        for link in soup.find_all("a", href=True):
+
+            text = link.get_text(
+                " ",
+                strip=True,
+            ).upper()
+
+            href = link.get(
+                "href",
+                "",
+            ).strip()
+
+            if not href:
+                continue
+
+            if not any(
+                keyword in text
+                for keyword in keywords
+            ):
+                continue
+
+            absolute_url = urljoin(
+                movie_url,
+                href,
+            )
+
+            if absolute_url in seen_links:
+                continue
+
+            seen_links.add(absolute_url)
+            links.append(absolute_url)
+
+        return links
+
     def get_latest_posts(self) -> list[dict]:
         html = self.get_homepage()
 
@@ -48,9 +104,15 @@ class WebsiteScraper:
         posts = []
         seen_urls = set()
 
-        for link in soup.find_all("a", href=True):
+        for link in soup.find_all(
+            "a",
+            href=True,
+        ):
 
-            href = link.get("href", "").strip()
+            href = link.get(
+                "href",
+                "",
+            ).strip()
 
             if not href:
                 continue
@@ -61,15 +123,18 @@ class WebsiteScraper:
             )
 
             # Only links from our website.
-            if not absolute_url.startswith(SITE_URL):
+            if not absolute_url.startswith(
+                SITE_URL
+            ):
                 continue
 
             # Only movie pages.
-            # This excludes category pages and other website links.
+            # This excludes category pages
+            # and other website links.
             if "/movie/" not in absolute_url.lower():
                 continue
 
-            # Avoid duplicate URLs on the same page.
+            # Avoid duplicate URLs on the homepage.
             if absolute_url in seen_urls:
                 continue
 
@@ -83,10 +148,15 @@ class WebsiteScraper:
 
             seen_urls.add(absolute_url)
 
+            download_links = self.get_download_links(
+                absolute_url
+            )
+
             posts.append(
                 {
                     "title": title,
                     "url": absolute_url,
+                    "download_links": download_links,
                 }
             )
 
