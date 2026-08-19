@@ -1,3 +1,4 @@
+import html
 import requests
 
 from .config import (
@@ -49,6 +50,7 @@ class TelegramPublisher:
             data={
                 "chat_id": self.channel_id,
                 "text": text,
+                "parse_mode": "HTML",
                 "disable_web_page_preview": True,
             },
             timeout=REQUEST_TIMEOUT,
@@ -114,18 +116,20 @@ class TelegramPublisher:
                 "No allowed file-host links found."
             )
 
+        safe_title = html.escape(title)
+
         lines = [
-            "✅ NEW FILE UPLOADED",
+            "✅ <b>NEW FILE UPLOADED</b>",
             "",
-            f"Titel :- {title}",
+            f"📌 <b>Title :-</b> <code>{safe_title}</code>",
         ]
 
         if gofile_url:
             lines.extend(
                 [
                     "",
-                    "GoFile Link 🔗",
-                    f"♻️ {gofile_url}",
+                    "🔰 <b>GoFile Link 🔰</b>",
+                    f"• {gofile_url}",
                 ]
             )
 
@@ -133,13 +137,16 @@ class TelegramPublisher:
             lines.extend(
                 [
                     "",
-                    "⚠️ All Cloud Links",
+                    "🍿 <b>All Cloud Links 🍿</b>",
                 ]
             )
 
-            for url in cloud_urls:
+            for index, url in enumerate(
+                cloud_urls,
+                start=1,
+            ):
                 lines.append(
-                    f"♻️ {url}"
+                    f"{index}. {url}"
                 )
 
         message = "\n".join(lines)
