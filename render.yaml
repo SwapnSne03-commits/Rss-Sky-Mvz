@@ -3,10 +3,8 @@ services:
     name: rss-sky-mvz
     runtime: python
     plan: free
-
     buildCommand: pip install -r requirements.txt
     startCommand: python -m bot.main
-
     envVars:
       - key: BOT_TOKEN
         sync: false
@@ -22,3 +20,12 @@ services:
 
       - key: REQUEST_TIMEOUT
         value: "20"
+
+      - key: GITHUB_TOKEN
+        sync: false
+
+      - key: GITHUB_REPOSITORY
+        sync: false
+
+      - key: GITHUB_STATE_FILE
+        value: data/processed_posts.json
