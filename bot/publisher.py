@@ -1,4 +1,3 @@
-import html
 import requests
 
 from .config import (
@@ -39,10 +38,25 @@ class TelegramPublisher:
                 "CHANNEL_ID is missing."
             )
 
+    @staticmethod
+    def _escape_html(text: str) -> str:
+        """
+        Escape characters that have special meaning
+        in Telegram HTML parse mode.
+        """
+
+        return (
+            text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+
     def send_message(
         self,
         text: str,
     ) -> dict:
+
         self._check_config()
 
         response = requests.post(
@@ -75,10 +89,14 @@ class TelegramPublisher:
     ) -> dict:
 
         title = title.strip()
-        download_links = download_links or []
+
+        download_links = (
+            download_links or []
+        )
 
         gofile_url = ""
-        cloud_urls = []
+        cloud_links = []
+        quality_sections = {}
 
         seen_urls = set()
 
@@ -97,6 +115,11 @@ class TelegramPublisher:
                 "",
             ).strip().lower()
 
+            section = link.get(
+                "section",
+                "",
+            ).strip()
+
             if not url:
                 continue
 
@@ -105,50 +128,105 @@ class TelegramPublisher:
 
             seen_urls.add(url)
 
+            # GoFile gets its own dedicated section.
             if host == "gofile":
+
                 if not gofile_url:
                     gofile_url = url
-            else:
-                cloud_urls.append(url)
 
-        if not gofile_url and not cloud_urls:
+                continue
+
+            # Quality-specific links.
+            if section:
+
+                if section not in quality_sections:
+                    quality_sections[section] = []
+
+                quality_sections[
+                    section
+                ].append(url)
+
+                continue
+
+            # Everything else goes into All Cloud Links.
+            cloud_links.append(url)
+
+        if (
+            not gofile_url
+            and not cloud_links
+            and not quality_sections
+        ):
             raise ValueError(
                 "No allowed file-host links found."
             )
 
-        safe_title = html.escape(title)
-
         lines = [
-            "✅ <b>NEW FILE UPLOADED</b>",
+            "<b>🎬 New Post Just Dropped! ✅</b>",
             "",
-            f"📌 <b>Title :-</b> <code>{safe_title}</code>",
+            f"<b>Title 💫:</b> <code>{self._escape_html(title)}</code>",
         ]
 
+        # -------------------------------------------------
+        # GOFILE
+        # -------------------------------------------------
+
         if gofile_url:
+
             lines.extend(
                 [
                     "",
-                    "🔰 <b>GoFile Link 🔰</b>",
-                    f"• {gofile_url}",
+                    "<b>🔰 GoFile Link 🔰</b>",
+                    f"• <b>{self._escape_html(gofile_url)}</b>",
                 ]
             )
 
-        if cloud_urls:
+        # -------------------------------------------------
+        # ALL CLOUD LINKS
+        # -------------------------------------------------
+
+        if cloud_links:
+
             lines.extend(
                 [
                     "",
-                    "🍿 <b>All Cloud Links 🍿</b>",
+                    "<b>🍿 All Cloud Links 🍿</b>",
                 ]
             )
 
             for index, url in enumerate(
-                cloud_urls,
+                cloud_links,
                 start=1,
             ):
                 lines.append(
-                    f"{index}. {url}"
+                    f"<b>{index}. {self._escape_html(url)}</b>"
+                )
+
+        # -------------------------------------------------
+        # QUALITY-SPECIFIC LINKS
+        # -------------------------------------------------
+
+        for section, urls in quality_sections.items():
+
+            if not urls:
+                continue
+
+            lines.extend(
+                [
+                    "",
+                    f"<b>{self._escape_html(section)}</b>",
+                ]
+            )
+
+            for index, url in enumerate(
+                urls,
+                start=1,
+            ):
+                lines.append(
+                    f"<b>{index}. {self._escape_html(url)}</b>"
                 )
 
         message = "\n".join(lines)
 
-        return self.send_message(message)
+        return self.send_message(
+            message
+            )
