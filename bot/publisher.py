@@ -41,30 +41,15 @@ class TelegramPublisher:
     def send_message(
         self,
         text: str,
-        disable_web_page_preview: bool = False,
     ) -> dict:
-        """
-        Send a text message to the configured
-        Telegram channel.
-
-        Returns the Telegram API response.
-        """
-
         self._check_config()
-
-        if not text.strip():
-            raise ValueError(
-                "Telegram message cannot be empty."
-            )
 
         response = requests.post(
             self._api_url("sendMessage"),
             data={
                 "chat_id": self.channel_id,
                 "text": text,
-                "disable_web_page_preview": (
-                    disable_web_page_preview
-                ),
+                "disable_web_page_preview": False,
             },
             timeout=REQUEST_TIMEOUT,
         )
@@ -86,98 +71,77 @@ class TelegramPublisher:
         movie_url: str,
         download_links: list[dict] | None = None,
     ) -> dict:
-        """
-        Publish one NEW source website post to Telegram.
-
-        Duplicate source-post detection is handled by
-        Database/main.py, not by this publisher.
-
-        Each download link should contain:
-
-            {
-                "url": "...",
-                "host": "..."
-            }
-        """
 
         title = title.strip()
-        movie_url = movie_url.strip()
-
         download_links = download_links or []
 
-        if not title:
-            raise ValueError(
-                "Post title cannot be empty."
-            )
+        gofile_url = ""
+        cloud_urls = []
 
-        if not movie_url:
-            raise ValueError(
-                "Movie URL cannot be empty."
-            )
-
-        lines = [
-            title,
-            "",
-            f"Movie URL: {movie_url}",
-        ]
-
-        valid_links = []
+        seen_urls = set()
 
         for link in download_links:
 
-            if isinstance(link, dict):
-                url = link.get(
-                    "url",
-                    "",
-                ).strip()
+            if not isinstance(link, dict):
+                continue
 
-                host = link.get(
-                    "host",
-                    "",
-                ).strip()
+            url = link.get(
+                "url",
+                "",
+            ).strip()
 
-            else:
-                url = str(link).strip()
-                host = ""
+            host = link.get(
+                "host",
+                "",
+            ).strip().lower()
 
             if not url:
                 continue
 
-            valid_links.append(
-                (
-                    url,
-                    host,
-                )
+            if url in seen_urls:
+                continue
+
+            seen_urls.add(url)
+
+            if host == "gofile":
+                if not gofile_url:
+                    gofile_url = url
+            else:
+                cloud_urls.append(url)
+
+        if not gofile_url and not cloud_urls:
+            raise ValueError(
+                "No allowed file-host links found."
             )
 
-        if valid_links:
+        lines = [
+            "✅ NEW FILE UPLOADED",
+            "",
+            f"Titel :- {title}",
+        ]
+
+        if gofile_url:
             lines.extend(
                 [
                     "",
-                    "Download/Protected Links:",
+                    "GoFile Link 🔗",
+                    f"♻️ {gofile_url}",
                 ]
             )
 
-            for index, (
-                url,
-                host,
-            ) in enumerate(
-                valid_links,
-                start=1,
-            ):
+        if cloud_urls:
+            lines.extend(
+                [
+                    "",
+                    "⚠️ All Cloud Links",
+                ]
+            )
 
+            for url in cloud_urls:
                 lines.append(
-                    f"{index}. {url}"
+                    f"♻️ {url}"
                 )
-
-                if host:
-                    lines.append(
-                        f"   Host: {host}"
-                    )
 
         message = "\n".join(lines)
 
-        return self.send_message(
-            message,
-            disable_web_page_preview=False,
-        )
+        return self.send_message(message)
