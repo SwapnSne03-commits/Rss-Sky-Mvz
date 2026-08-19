@@ -1,23 +1,31 @@
 import os
-from threading import Thread
-
-from flask import Flask
-
-
-app = Flask(__name__)
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
-@app.route("/")
-def home():
-    return "RSS-Sky-Mvz Bot is running.", 200
+class HealthHandler(BaseHTTPRequestHandler):
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header(
+            "Content-Type",
+            "text/plain",
+        )
+        self.end_headers()
+
+        self.wfile.write(
+            b"RSS-Sky-Mvz Bot is running."
+        )
+
+    def log_message(
+        self,
+        format,
+        *args,
+    ):
+        return
 
 
-@app.route("/health")
-def health():
-    return "OK", 200
-
-
-def run_health_server():
+def start_health_server():
     port = int(
         os.getenv(
             "PORT",
@@ -25,15 +33,13 @@ def run_health_server():
         )
     )
 
-    app.run(
-        host="0.0.0.0",
-        port=port,
+    server = HTTPServer(
+        ("0.0.0.0", port),
+        HealthHandler,
     )
 
-
-def start_health_server():
-    thread = Thread(
-        target=run_health_server,
+    thread = threading.Thread(
+        target=server.serve_forever,
         daemon=True,
     )
 
