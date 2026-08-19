@@ -46,6 +46,7 @@ def generate_rss(output_file: str = FEED_FILE) -> int:
         SubElement(item, "link").text = url
         SubElement(item, "guid").text = url
         SubElement(item, "description").text = title
+        SubElement(item, "pubDate").text = format_datetime(now)
 
     tree = ElementTree(rss)
 
