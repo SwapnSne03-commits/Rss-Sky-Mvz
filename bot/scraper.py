@@ -12,7 +12,6 @@ from .config import (
 class WebsiteScraper:
     def __init__(self):
         self.session = requests.Session()
-
         self.session.headers.update(
             {
                 "User-Agent": USER_AGENT,
@@ -26,10 +25,6 @@ class WebsiteScraper:
         )
 
     def fetch(self, url: str) -> str:
-        """
-        Download a webpage and return its HTML.
-        """
-
         response = self.session.get(
             url,
             timeout=REQUEST_TIMEOUT,
@@ -40,25 +35,9 @@ class WebsiteScraper:
         return response.text
 
     def get_homepage(self) -> str:
-        """
-        Fetch the main website homepage.
-        """
-
         return self.fetch(SITE_URL)
 
     def get_latest_posts(self) -> list[dict]:
-        """
-        Extract movie post links from the website homepage.
-
-        Returns:
-            [
-                {
-                    "title": "...",
-                    "url": "https://..."
-                }
-            ]
-        """
-
         html = self.get_homepage()
 
         soup = BeautifulSoup(
@@ -81,15 +60,16 @@ class WebsiteScraper:
                 href,
             )
 
-            # Only keep posts belonging to our website.
+            # Only links from our website.
             if not absolute_url.startswith(SITE_URL):
                 continue
 
-            # Ignore the homepage itself.
-            if absolute_url.rstrip("/") == SITE_URL:
+            # Only movie pages.
+            # This excludes category pages and other website links.
+            if "/movie/" not in absolute_url.lower():
                 continue
 
-            # Avoid processing the same URL twice.
+            # Avoid duplicate URLs on the same page.
             if absolute_url in seen_urls:
                 continue
 
