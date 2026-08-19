@@ -1,5 +1,6 @@
 import sqlite3
 from pathlib import Path
+from urllib.parse import urlparse
 
 from .config import DATABASE_PATH
 
@@ -35,7 +36,41 @@ class Database:
 
             conn.commit()
 
+    @staticmethod
+    def _normalize_url(url: str) -> str:
+        """
+        Normalize a protected/download URL before storing
+        and checking it.
+        """
+
+        return url.strip()
+
+    @staticmethod
+    def _get_host(url: str) -> str:
+        """
+        Extract hostname from a protected/download URL.
+        """
+
+        parsed = urlparse(url)
+
+        host = parsed.netloc.lower()
+
+        if host.startswith("www."):
+            host = host[4:]
+
+        return host
+
     def link_exists(self, url: str) -> bool:
+        """
+        Check whether this protected/download URL
+        has already been seen.
+        """
+
+        url = self._normalize_url(url)
+
+        if not url:
+            return False
+
         with self._connect() as conn:
             cursor = conn.execute(
                 """
@@ -52,17 +87,28 @@ class Database:
     def save_link(
         self,
         url: str,
-        host: str,
+        host: str = "",
         title: str = "",
         post_url: str = "",
     ) -> bool:
         """
-        Save a new download link.
+        Save a protected/download link.
+
+        Duplicate detection is based ONLY on the
+        protected/download URL.
 
         Returns:
             True  -> link was new and saved
             False -> link already existed
         """
+
+        url = self._normalize_url(url)
+
+        if not url:
+            return False
+
+        if not host:
+            host = self._get_host(url)
 
         with self._connect() as conn:
             cursor = conn.execute(
@@ -90,25 +136,52 @@ class Database:
 
     def get_new_links(
         self,
-        links: list[dict],
+        links: list,
         title: str = "",
         post_url: str = "",
-    ) -> list[dict]:
+    ) -> list:
         """
-        Filter and save only previously unseen links.
+        Filter and save only previously unseen
+        protected/download links.
 
-        Each item in `links` should contain:
-            {
-                "url": "...",
-                "host": "Gofile"
-            }
+        The input can contain either:
+
+            [
+                "https://example.com/abc",
+                "https://example.com/xyz"
+            ]
+
+        or:
+
+            [
+                {
+                    "url": "https://example.com/abc",
+                    "host": "example.com"
+                }
+            ]
+
+        Returns the same type of item that was supplied.
         """
 
         new_links = []
 
         for item in links:
-            url = item["url"]
-            host = item["host"]
+
+            if isinstance(item, str):
+                url = item
+                host = ""
+
+            elif isinstance(item, dict):
+                url = item.get("url", "")
+                host = item.get("host", "")
+
+            else:
+                continue
+
+            url = self._normalize_url(url)
+
+            if not url:
+                continue
 
             if self.save_link(
                 url=url,
