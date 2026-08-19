@@ -38,21 +38,18 @@ class WebsiteScraper:
     def get_homepage(self) -> str:
         return self.fetch(SITE_URL)
 
-    def get_download_links(self, movie_url: str) -> list[str]:
+    def get_download_links(
+        self,
+        movie_url: str,
+    ) -> list[dict]:
         """
         Extract download/protected links from a movie page.
 
-        The returned URLs are the actual href values of
-        download/protected link buttons such as:
-
-        - Google Drive Direct Links
-        - SERVER 01
-        - SERVER 02
-        - SERVER 03
-        - SERVER 04
-        - SERVER 05
-        - SERVER 06
-        - 1080P WEB-DL LINK
+        Each returned item contains:
+            {
+                "url": "...",
+                "host": "..."
+            }
         """
 
         html = self.fetch(movie_url)
@@ -106,9 +103,11 @@ class WebsiteScraper:
                 href,
             )
 
-            # Ignore invalid URLs.
-            parsed = urlparse(absolute_url)
+            parsed = urlparse(
+                absolute_url
+            )
 
+            # Ignore invalid URLs.
             if not parsed.scheme:
                 continue
 
@@ -119,8 +118,19 @@ class WebsiteScraper:
             if absolute_url in seen_links:
                 continue
 
+            host = parsed.netloc.lower()
+
+            # Remove port if present.
+            host = host.split(":", 1)[0]
+
             seen_links.add(absolute_url)
-            links.append(absolute_url)
+
+            links.append(
+                {
+                    "url": absolute_url,
+                    "host": host,
+                }
+            )
 
         return links
 
