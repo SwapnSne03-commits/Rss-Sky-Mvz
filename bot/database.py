@@ -21,6 +21,8 @@ class Database:
 
     def _create_tables(self):
         with self._connect() as conn:
+
+            # Download/protected links table.
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS links (
@@ -34,21 +36,28 @@ class Database:
                 """
             )
 
+            # Source website posts table.
+            #
+            # IMPORTANT:
+            # Duplicate detection for posts is based ONLY
+            # on the exact source post URL.
+            #
+            # Therefore the same movie can be published again
+            # when the website creates a new source post URL.
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS posts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     post_url TEXT NOT NULL UNIQUE,
                     title TEXT,
-                    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """
             )
 
             conn.commit()
 
-    @staticmethod
-    def _normalize_url(url: str) -> str:
+    def _normalize_url(self, url: str) -> str:
         return url.strip()
 
     @staticmethod
@@ -62,20 +71,21 @@ class Database:
 
         return host
 
-    # --------------------------------------------------
-    # SOURCE POST TRACKING
-    # --------------------------------------------------
+    # ---------------------------------------------------------
+    # SOURCE POST METHODS
+    # ---------------------------------------------------------
 
     def post_exists(self, post_url: str) -> bool:
         """
-        Check whether this exact source website post
-        has already been successfully processed.
+        Check whether the exact source website post
+        has already been processed.
 
-        This is completely separate from download-link
-        duplicate detection.
+        Duplicate detection is based ONLY on post_url.
         """
 
-        post_url = self._normalize_url(post_url)
+        post_url = self._normalize_url(
+            post_url
+        )
 
         if not post_url:
             return False
@@ -99,15 +109,16 @@ class Database:
         title: str = "",
     ) -> bool:
         """
-        Mark a source website post as successfully
-        processed.
+        Save a successfully processed source post.
 
         Returns:
-            True  -> newly saved
-            False -> already existed
+            True  -> new source post was saved
+            False -> source post already existed
         """
 
-        post_url = self._normalize_url(post_url)
+        post_url = self._normalize_url(
+            post_url
+        )
 
         if not post_url:
             return False
@@ -132,14 +143,14 @@ class Database:
 
             return cursor.rowcount == 1
 
-    # --------------------------------------------------
-    # DOWNLOAD LINK TRACKING
-    # --------------------------------------------------
+    # ---------------------------------------------------------
+    # DOWNLOAD LINK METHODS
+    # ---------------------------------------------------------
 
     def link_exists(self, url: str) -> bool:
         """
-        Check whether this download/protected URL
-        has ever been seen before.
+        Check whether a download/protected URL
+        has already been seen.
         """
 
         url = self._normalize_url(url)
@@ -170,11 +181,8 @@ class Database:
         """
         Save a download/protected link.
 
-        Link duplicate detection is based ONLY on
-        the download URL.
-
-        A previously seen link does NOT mean that a
-        new source post should be ignored.
+        Duplicate detection here applies ONLY to the
+        download URL itself.
         """
 
         url = self._normalize_url(url)
@@ -216,11 +224,18 @@ class Database:
         post_url: str = "",
     ) -> list:
         """
-        Save previously unseen download links.
+        Filter and save previously unseen download links.
 
-        This method is for link history only.
-        It must NOT be used to decide whether a
-        source website post is new.
+        Supports both:
+
+            "https://example.com/file"
+
+        and:
+
+            {
+                "url": "https://example.com/file",
+                "host": "example.com"
+            }
         """
 
         new_links = []
