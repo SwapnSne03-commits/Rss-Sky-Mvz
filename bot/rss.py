@@ -69,12 +69,30 @@ def generate_rss(output_file: str = FEED_FILE) -> int:
             continue
 
         # Save newly discovered links to database.
-        # This does NOT remove existing movies from RSS.
+        # Existing links are ignored by the database.
         database.get_new_links(
             download_links,
             title=title,
             post_url=movie_url,
         )
+
+        # Convert link dictionaries into URL strings.
+        link_urls = []
+
+        for link in download_links:
+            if isinstance(link, dict):
+                url = link.get(
+                    "url",
+                    "",
+                ).strip()
+            else:
+                url = str(link).strip()
+
+            if url:
+                link_urls.append(url)
+
+        if not link_urls:
+            continue
 
         description_lines = [
             f"Movie URL: {movie_url}",
@@ -82,25 +100,46 @@ def generate_rss(output_file: str = FEED_FILE) -> int:
             "Download/Protected Links:",
         ]
 
-        # Always include all currently available links.
         for index, link in enumerate(
             download_links,
             start=1,
         ):
+            if isinstance(link, dict):
+                url = link.get(
+                    "url",
+                    "",
+                ).strip()
+
+                host = link.get(
+                    "host",
+                    "",
+                ).strip()
+            else:
+                url = str(link).strip()
+                host = ""
+
+            if not url:
+                continue
+
             description_lines.append(
-                f"{index}. {link}"
+                f"{index}. {url}"
             )
+
+            if host:
+                description_lines.append(
+                    f"   Host: {host}"
+                )
 
         description = "\n".join(
             description_lines
         )
 
-        # Create a stable GUID based on the movie URL
-        # and its currently available download links.
+        # Create a stable GUID based on the
+        # movie URL and its download links.
         guid_source = (
             movie_url
             + "|"
-            + "|".join(download_links)
+            + "|".join(link_urls)
         )
 
         guid = hashlib.sha256(
