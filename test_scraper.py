@@ -27,16 +27,24 @@ def main():
         if download_links:
             print("   Download/Protected Links:")
 
-            for link_index, download_link in enumerate(
+            for link_index, item in enumerate(
                 download_links,
                 start=1,
             ):
                 print(
-                    f"      {link_index}. {download_link}"
+                    f"      {link_index}. "
+                    f"{item['url']}"
                 )
+
+                print(
+                    f"         Host: "
+                    f"{item['host']}"
+                )
+
         else:
             print(
-                "   Download/Protected Links: None found"
+                "   Download/Protected Links: "
+                "None found"
             )
 
         print()
