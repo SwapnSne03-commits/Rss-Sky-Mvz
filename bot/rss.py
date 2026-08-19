@@ -28,7 +28,10 @@ def generate_rss(output_file: str = FEED_FILE) -> int:
         },
     )
 
-    channel = SubElement(rss, "channel")
+    channel = SubElement(
+        rss,
+        "channel",
+    )
 
     SubElement(channel, "title").text = FEED_TITLE
     SubElement(channel, "link").text = SITE_URL
@@ -65,48 +68,39 @@ def generate_rss(output_file: str = FEED_FILE) -> int:
         if not download_links:
             continue
 
-        # Save only previously unseen links.
-        new_links = database.get_new_links(
+        # Save newly discovered links to database.
+        # This does NOT remove existing movies from RSS.
+        database.get_new_links(
             download_links,
             title=title,
             post_url=movie_url,
         )
 
-        # Nothing new for this movie.
-        if not new_links:
-            continue
-
         description_lines = [
             f"Movie URL: {movie_url}",
             "",
-            "New Download/Protected Links:",
+            "Download/Protected Links:",
         ]
 
+        # Always include all currently available links.
         for index, link in enumerate(
-            new_links,
+            download_links,
             start=1,
         ):
             description_lines.append(
-                f"{index}. {link['url']}"
-            )
-
-            description_lines.append(
-                f"   Host: {link['host']}"
+                f"{index}. {link}"
             )
 
         description = "\n".join(
             description_lines
         )
 
-        # Create a stable GUID based on the
-        # newly discovered links.
+        # Create a stable GUID based on the movie URL
+        # and its currently available download links.
         guid_source = (
             movie_url
             + "|"
-            + "|".join(
-                link["url"]
-                for link in new_links
-            )
+            + "|".join(download_links)
         )
 
         guid = hashlib.sha256(
@@ -148,4 +142,4 @@ if __name__ == "__main__":
 
     print(
         f"File: {FEED_FILE}"
-    )
+        )
