@@ -1,6 +1,7 @@
 import logging
 import time
 
+from .health import start_health_server
 from .config import (
     CHECK_INTERVAL,
     validate_config,
@@ -20,7 +21,6 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-
 
 class RSSBot:
     def __init__(self):
@@ -275,6 +275,8 @@ class RSSBot:
 
 
 def main():
+    start_health_server()
+
     bot = RSSBot()
     bot.run()
 
