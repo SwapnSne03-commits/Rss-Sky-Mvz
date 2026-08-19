@@ -38,6 +38,7 @@ ALLOWED_HOSTS = {
     "gdflix": "GDFLIX",
     "drivehub": "DriveHub",
     "multicloud": "MultiCloud",
+    "hubdrive": "HubDrive"
 }
 
 
