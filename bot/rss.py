@@ -4,8 +4,6 @@ from xml.etree.ElementTree import Element, SubElement, ElementTree
 import hashlib
 
 from .config import SITE_URL
-from .scraper import WebsiteScraper
-from .database import Database
 
 
 FEED_TITLE = "Latest Posts"
@@ -15,11 +13,47 @@ FEED_FILE = "rss.xml"
 MAX_ITEMS = 50
 
 
-def generate_rss(output_file: str = FEED_FILE) -> int:
-    scraper = WebsiteScraper()
-    database = Database()
+def _get_link_url(link) -> str:
+    """
+    Return the URL from either a string or link dictionary.
+    """
 
-    posts = scraper.get_latest_posts()
+    if isinstance(link, dict):
+        return link.get(
+            "url",
+            "",
+        ).strip()
+
+    return str(link).strip()
+
+
+def _get_link_host(link) -> str:
+    """
+    Return the host from a link dictionary.
+    """
+
+    if isinstance(link, dict):
+        return link.get(
+            "host",
+            "",
+        ).strip()
+
+    return ""
+
+
+def build_rss(
+    posts: list[dict],
+    output_file: str = FEED_FILE,
+) -> int:
+    """
+    Build an RSS feed from already-scraped posts.
+
+    IMPORTANT:
+    This function does NOT scrape the website and does
+    NOT perform database duplicate detection.
+
+    Source-post duplicate detection is handled by main.py.
+    """
 
     rss = Element(
         "rss",
@@ -33,20 +67,37 @@ def generate_rss(output_file: str = FEED_FILE) -> int:
         "channel",
     )
 
-    SubElement(channel, "title").text = FEED_TITLE
-    SubElement(channel, "link").text = SITE_URL
-    SubElement(channel, "description").text = FEED_DESCRIPTION
-    SubElement(channel, "language").text = "en"
+    SubElement(
+        channel,
+        "title",
+    ).text = FEED_TITLE
+
+    SubElement(
+        channel,
+        "link",
+    ).text = SITE_URL
+
+    SubElement(
+        channel,
+        "description",
+    ).text = FEED_DESCRIPTION
+
+    SubElement(
+        channel,
+        "language",
+    ).text = "en"
 
     now = datetime.now(timezone.utc)
 
-    SubElement(channel, "lastBuildDate").text = format_datetime(
-        now
-    )
+    SubElement(
+        channel,
+        "lastBuildDate",
+    ).text = format_datetime(now)
 
     item_count = 0
 
     for post in posts:
+
         if item_count >= MAX_ITEMS:
             break
 
@@ -65,34 +116,13 @@ def generate_rss(output_file: str = FEED_FILE) -> int:
             [],
         )
 
+        if not movie_url:
+            continue
+
         if not download_links:
             continue
 
-        # Save newly discovered links to database.
-        # Existing links are ignored by the database.
-        database.get_new_links(
-            download_links,
-            title=title,
-            post_url=movie_url,
-        )
-
-        # Convert link dictionaries into URL strings.
         link_urls = []
-
-        for link in download_links:
-            if isinstance(link, dict):
-                url = link.get(
-                    "url",
-                    "",
-                ).strip()
-            else:
-                url = str(link).strip()
-
-            if url:
-                link_urls.append(url)
-
-        if not link_urls:
-            continue
 
         description_lines = [
             f"Movie URL: {movie_url}",
@@ -104,22 +134,15 @@ def generate_rss(output_file: str = FEED_FILE) -> int:
             download_links,
             start=1,
         ):
-            if isinstance(link, dict):
-                url = link.get(
-                    "url",
-                    "",
-                ).strip()
 
-                host = link.get(
-                    "host",
-                    "",
-                ).strip()
-            else:
-                url = str(link).strip()
-                host = ""
+            url = _get_link_url(link)
 
             if not url:
                 continue
+
+            host = _get_link_host(link)
+
+            link_urls.append(url)
 
             description_lines.append(
                 f"{index}. {url}"
@@ -130,20 +153,23 @@ def generate_rss(output_file: str = FEED_FILE) -> int:
                     f"   Host: {host}"
                 )
 
+        if not link_urls:
+            continue
+
         description = "\n".join(
             description_lines
         )
 
-        # Create a stable GUID based on the
-        # movie URL and its download links.
-        guid_source = (
-            movie_url
-            + "|"
-            + "|".join(link_urls)
-        )
-
+        # GUID is based on the SOURCE POST URL.
+        #
+        # Therefore:
+        #
+        # Same source post → same GUID
+        # New source post → new GUID
+        #
+        # Even if the movie/download links are identical.
         guid = hashlib.sha256(
-            guid_source.encode("utf-8")
+            movie_url.encode("utf-8")
         ).hexdigest()
 
         item = SubElement(
@@ -151,13 +177,30 @@ def generate_rss(output_file: str = FEED_FILE) -> int:
             "item",
         )
 
-        SubElement(item, "title").text = title
-        SubElement(item, "link").text = movie_url
-        SubElement(item, "guid").text = guid
-        SubElement(item, "description").text = description
-        SubElement(item, "pubDate").text = format_datetime(
-            now
-        )
+        SubElement(
+            item,
+            "title",
+        ).text = title
+
+        SubElement(
+            item,
+            "link",
+        ).text = movie_url
+
+        SubElement(
+            item,
+            "guid",
+        ).text = guid
+
+        SubElement(
+            item,
+            "description",
+        ).text = description
+
+        SubElement(
+            item,
+            "pubDate",
+        ).text = format_datetime(now)
 
         item_count += 1
 
@@ -173,12 +216,9 @@ def generate_rss(output_file: str = FEED_FILE) -> int:
 
 
 if __name__ == "__main__":
-    count = generate_rss()
-
     print(
-        f"RSS generated successfully: {count} items"
+        "rss.py is a library module."
     )
-
     print(
-        f"File: {FEED_FILE}"
+        "Use build_rss(posts) from the main runner."
         )
