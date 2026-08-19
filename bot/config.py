@@ -18,7 +18,7 @@ CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "120"))
 
 DATABASE_PATH = os.getenv(
     "DATABASE_PATH",
-    "/var/data/bot.db",
+    "data/bot.db",
 )
 
 REQUEST_TIMEOUT = int(
