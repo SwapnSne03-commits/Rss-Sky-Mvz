@@ -49,7 +49,7 @@ class TelegramPublisher:
             data={
                 "chat_id": self.channel_id,
                 "text": text,
-                "disable_web_page_preview": False,
+                "disable_web_page_preview": True,
             },
             timeout=REQUEST_TIMEOUT,
         )
