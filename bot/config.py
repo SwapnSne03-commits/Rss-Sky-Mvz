@@ -1,0 +1,62 @@
+import os
+
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
+
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+CHANNEL_ID = os.getenv("CHANNEL_ID", "").strip()
+
+SITE_URL = os.getenv(
+    "SITE_URL",
+    "https://skymovieshd.forex",
+).rstrip("/")
+
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "120"))
+
+DATABASE_PATH = os.getenv(
+    "DATABASE_PATH",
+    "data/bot.db",
+)
+
+REQUEST_TIMEOUT = int(
+    os.getenv("REQUEST_TIMEOUT", "20")
+)
+
+
+# Protected-link/intermediary service used by the website.
+PROTECTED_LINK_DOMAIN = "howblogs.xyz"
+
+
+# Only these file-hosts should finally appear in Telegram.
+ALLOWED_HOSTS = {
+    "gofile.io": "Gofile",
+    "vikingfile.com": "VikingFile",
+    "hubcloud": "HubCloud",
+    "gdflix": "GDFLIX",
+    "drivehub": "DriveHub",
+    "multicloud": "MultiCloud",
+}
+
+
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+
+
+def validate_config() -> None:
+    """Validate required environment variables."""
+
+    if not BOT_TOKEN:
+        raise RuntimeError(
+            "BOT_TOKEN is missing from the environment."
+        )
+
+    if not CHANNEL_ID:
+        raise RuntimeError(
+            "CHANNEL_ID is missing from the environment."
+        )
