@@ -1,13 +1,14 @@
-import time
 import logging
+import time
 
 from .config import (
     CHECK_INTERVAL,
     validate_config,
 )
 from .database import Database
-from .scraper import WebsiteScraper
 from .publisher import TelegramPublisher
+from .rss import build_rss
+from .scraper import WebsiteScraper
 
 
 logging.basicConfig(
@@ -30,29 +31,41 @@ class RSSBot:
         self.database = Database()
         self.publisher = TelegramPublisher()
 
-    def process_posts(self) -> int:
+    def process_cycle(self) -> int:
         """
-        Check the website and publish newly discovered
-        source posts to Telegram.
+        Run one complete website-check cycle.
 
-        A source post is marked as processed only after
-        Telegram publishing succeeds.
+        Workflow:
+
+        1. Scrape the website once.
+        2. Ignore source posts already processed.
+        3. Publish each new source post to Telegram.
+        4. Build RSS from successfully published posts.
+        5. Mark the source post as processed only after
+           successful Telegram publishing.
         """
 
         logger.info(
-            "Checking website for new posts..."
+            "Starting website check..."
         )
 
-        posts = self.scraper.get_latest_posts()
+        try:
+            posts = self.scraper.get_latest_posts()
+        except Exception:
+            logger.exception(
+                "Failed to scrape website."
+            )
+            return 0
 
         logger.info(
-            "Found %d movie posts on website.",
+            "Found %d source posts.",
             len(posts),
         )
 
-        published_count = 0
+        new_posts = []
 
         for post in posts:
+
             title = post.get(
                 "title",
                 "",
@@ -71,13 +84,22 @@ class RSSBot:
             if not movie_url:
                 continue
 
-            # Check the SOURCE POST, not the movie title
-            # and not the download links.
+            # Source-post duplicate detection.
+            #
+            # This checks ONLY the exact source post URL.
+            #
+            # It does NOT check:
+            # - movie title
+            # - movie name
+            # - download links
+            #
+            # Therefore a new website post for the same movie
+            # can still be published.
             if self.database.post_exists(
                 movie_url
             ):
                 logger.info(
-                    "Already processed: %s",
+                    "Already processed source post: %s",
                     movie_url,
                 )
                 continue
@@ -89,8 +111,42 @@ class RSSBot:
                 )
                 continue
 
+            new_posts.append(
+                post
+            )
+
+        if not new_posts:
             logger.info(
-                "New source post found: %s",
+                "No new source posts found."
+            )
+            return 0
+
+        logger.info(
+            "New source posts to process: %d",
+            len(new_posts),
+        )
+
+        successfully_published = []
+
+        for post in new_posts:
+
+            title = post.get(
+                "title",
+                "",
+            ).strip()
+
+            movie_url = post.get(
+                "url",
+                "",
+            ).strip()
+
+            download_links = post.get(
+                "download_links",
+                [],
+            )
+
+            logger.info(
+                "Publishing: %s",
                 title,
             )
 
@@ -107,45 +163,84 @@ class RSSBot:
                     movie_url,
                 )
 
-                # IMPORTANT:
-                # Do NOT save the source post here.
+                # Do NOT mark the source post as processed.
+                #
                 # It will be retried during the next cycle.
                 continue
 
             if not result.get("ok"):
                 logger.error(
                     "Telegram API returned failure: %s",
-                    result,
+                    movie_url,
                 )
                 continue
 
-            # Only mark the SOURCE POST as processed
-            # after Telegram successfully accepts it.
+            logger.info(
+                "Telegram publishing successful: %s",
+                title,
+            )
+
+            successfully_published.append(
+                post
+            )
+
+        if not successfully_published:
+            logger.info(
+                "No posts were successfully published."
+            )
+            return 0
+
+        # Build RSS from posts that were successfully
+        # accepted by Telegram.
+        try:
+            rss_count = build_rss(
+                successfully_published,
+            )
+
+            logger.info(
+                "RSS generated successfully. Items: %d",
+                rss_count,
+            )
+
+        except Exception:
+            logger.exception(
+                "RSS generation failed."
+            )
+
+        # Mark source posts as processed.
+        #
+        # This happens after Telegram publishing.
+        for post in successfully_published:
+
+            title = post.get(
+                "title",
+                "",
+            ).strip()
+
+            movie_url = post.get(
+                "url",
+                "",
+            ).strip()
+
             saved = self.database.save_post(
                 post_url=movie_url,
                 title=title,
             )
 
             if saved:
-                published_count += 1
-
                 logger.info(
-                    "Published successfully: %s",
-                    title,
+                    "Source post recorded: %s",
+                    movie_url,
                 )
             else:
                 logger.warning(
-                    "Post was published but could not "
-                    "be recorded as processed: %s",
+                    "Source post was already recorded: %s",
                     movie_url,
                 )
 
-        logger.info(
-            "Cycle finished. Published: %d",
-            published_count,
+        return len(
+            successfully_published
         )
-
-        return published_count
 
     def run(self):
         logger.info(
@@ -158,12 +253,13 @@ class RSSBot:
         )
 
         while True:
+
             try:
-                self.process_posts()
+                self.process_cycle()
 
             except Exception:
                 logger.exception(
-                    "Unexpected error during check cycle."
+                    "Unexpected error in processing cycle."
                 )
 
             logger.info(
@@ -171,7 +267,9 @@ class RSSBot:
                 CHECK_INTERVAL,
             )
 
-            time.sleep(CHECK_INTERVAL)
+            time.sleep(
+                CHECK_INTERVAL
+            )
 
 
 def main():
