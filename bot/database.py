@@ -34,23 +34,25 @@ class Database:
                 """
             )
 
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS posts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    post_url TEXT NOT NULL UNIQUE,
+                    title TEXT,
+                    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
             conn.commit()
 
     @staticmethod
     def _normalize_url(url: str) -> str:
-        """
-        Normalize a protected/download URL before storing
-        and checking it.
-        """
-
         return url.strip()
 
     @staticmethod
     def _get_host(url: str) -> str:
-        """
-        Extract hostname from a protected/download URL.
-        """
-
         parsed = urlparse(url)
 
         host = parsed.netloc.lower()
@@ -60,10 +62,84 @@ class Database:
 
         return host
 
+    # --------------------------------------------------
+    # SOURCE POST TRACKING
+    # --------------------------------------------------
+
+    def post_exists(self, post_url: str) -> bool:
+        """
+        Check whether this exact source website post
+        has already been successfully processed.
+
+        This is completely separate from download-link
+        duplicate detection.
+        """
+
+        post_url = self._normalize_url(post_url)
+
+        if not post_url:
+            return False
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                SELECT 1
+                FROM posts
+                WHERE post_url = ?
+                LIMIT 1
+                """,
+                (post_url,),
+            )
+
+            return cursor.fetchone() is not None
+
+    def save_post(
+        self,
+        post_url: str,
+        title: str = "",
+    ) -> bool:
+        """
+        Mark a source website post as successfully
+        processed.
+
+        Returns:
+            True  -> newly saved
+            False -> already existed
+        """
+
+        post_url = self._normalize_url(post_url)
+
+        if not post_url:
+            return False
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT OR IGNORE INTO posts
+                (
+                    post_url,
+                    title
+                )
+                VALUES (?, ?)
+                """,
+                (
+                    post_url,
+                    title,
+                ),
+            )
+
+            conn.commit()
+
+            return cursor.rowcount == 1
+
+    # --------------------------------------------------
+    # DOWNLOAD LINK TRACKING
+    # --------------------------------------------------
+
     def link_exists(self, url: str) -> bool:
         """
-        Check whether this protected/download URL
-        has already been seen.
+        Check whether this download/protected URL
+        has ever been seen before.
         """
 
         url = self._normalize_url(url)
@@ -92,14 +168,13 @@ class Database:
         post_url: str = "",
     ) -> bool:
         """
-        Save a protected/download link.
+        Save a download/protected link.
 
-        Duplicate detection is based ONLY on the
-        protected/download URL.
+        Link duplicate detection is based ONLY on
+        the download URL.
 
-        Returns:
-            True  -> link was new and saved
-            False -> link already existed
+        A previously seen link does NOT mean that a
+        new source post should be ignored.
         """
 
         url = self._normalize_url(url)
@@ -141,26 +216,11 @@ class Database:
         post_url: str = "",
     ) -> list:
         """
-        Filter and save only previously unseen
-        protected/download links.
+        Save previously unseen download links.
 
-        The input can contain either:
-
-            [
-                "https://example.com/abc",
-                "https://example.com/xyz"
-            ]
-
-        or:
-
-            [
-                {
-                    "url": "https://example.com/abc",
-                    "host": "example.com"
-                }
-            ]
-
-        Returns the same type of item that was supplied.
+        This method is for link history only.
+        It must NOT be used to decide whether a
+        source website post is new.
         """
 
         new_links = []
@@ -172,8 +232,14 @@ class Database:
                 host = ""
 
             elif isinstance(item, dict):
-                url = item.get("url", "")
-                host = item.get("host", "")
+                url = item.get(
+                    "url",
+                    "",
+                )
+                host = item.get(
+                    "host",
+                    "",
+                )
 
             else:
                 continue
