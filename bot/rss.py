@@ -42,11 +42,44 @@ def generate_rss(output_file: str = FEED_FILE) -> int:
         title = post.get("title", "").strip()
         url = post.get("url", "").strip()
 
+        download_links = post.get(
+            "download_links",
+            [],
+        )
+
         SubElement(item, "title").text = title
         SubElement(item, "link").text = url
+
+        # Keep the movie URL as the RSS GUID.
         SubElement(item, "guid").text = url
-        SubElement(item, "description").text = title
-        SubElement(item, "pubDate").text = format_datetime(now)
+
+        # Put all extracted download/protected links
+        # inside the RSS description.
+        description_parts = []
+
+        if download_links:
+            description_parts.append(
+                "Download/Protected Links:"
+            )
+
+            for download_link in download_links:
+                description_parts.append(
+                    download_link
+                )
+
+        description = "\n".join(
+            description_parts
+        )
+
+        SubElement(
+            item,
+            "description",
+        ).text = description
+
+        SubElement(
+            item,
+            "pubDate",
+        ).text = format_datetime(now)
 
     tree = ElementTree(rss)
 
@@ -61,5 +94,11 @@ def generate_rss(output_file: str = FEED_FILE) -> int:
 
 if __name__ == "__main__":
     count = generate_rss()
-    print(f"RSS generated successfully: {count} items")
-    print(f"File: {FEED_FILE}")
+
+    print(
+        f"RSS generated successfully: {count} items"
+    )
+
+    print(
+        f"File: {FEED_FILE}"
+    )
