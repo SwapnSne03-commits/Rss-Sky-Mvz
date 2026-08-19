@@ -52,6 +52,11 @@ class TelegramPublisher:
 
         self._check_config()
 
+        if not text.strip():
+            raise ValueError(
+                "Telegram message cannot be empty."
+            )
+
         response = requests.post(
             self._api_url("sendMessage"),
             data={
@@ -82,9 +87,13 @@ class TelegramPublisher:
         download_links: list[dict] | None = None,
     ) -> dict:
         """
-        Publish a website post to Telegram.
+        Publish one NEW source website post to Telegram.
+
+        Duplicate source-post detection is handled by
+        Database/main.py, not by this publisher.
 
         Each download link should contain:
+
             {
                 "url": "...",
                 "host": "..."
@@ -96,24 +105,27 @@ class TelegramPublisher:
 
         download_links = download_links or []
 
+        if not title:
+            raise ValueError(
+                "Post title cannot be empty."
+            )
+
+        if not movie_url:
+            raise ValueError(
+                "Movie URL cannot be empty."
+            )
+
         lines = [
             title,
             "",
             f"Movie URL: {movie_url}",
         ]
 
-        if download_links:
-            lines.extend(
-                [
-                    "",
-                    "Download/Protected Links:",
-                ]
-            )
+        valid_links = []
 
-            for index, link in enumerate(
-                download_links,
-                start=1,
-            ):
+        for link in download_links:
+
+            if isinstance(link, dict):
                 url = link.get(
                     "url",
                     "",
@@ -124,19 +136,43 @@ class TelegramPublisher:
                     "",
                 ).strip()
 
-                if not url:
-                    continue
+            else:
+                url = str(link).strip()
+                host = ""
+
+            if not url:
+                continue
+
+            valid_links.append(
+                (
+                    url,
+                    host,
+                )
+            )
+
+        if valid_links:
+            lines.extend(
+                [
+                    "",
+                    "Download/Protected Links:",
+                ]
+            )
+
+            for index, (
+                url,
+                host,
+            ) in enumerate(
+                valid_links,
+                start=1,
+            ):
+
+                lines.append(
+                    f"{index}. {url}"
+                )
 
                 if host:
                     lines.append(
-                        f"{index}. {url}"
-                    )
-                    lines.append(
                         f"   Host: {host}"
-                    )
-                else:
-                    lines.append(
-                        f"{index}. {url}"
                     )
 
         message = "\n".join(lines)
@@ -144,4 +180,4 @@ class TelegramPublisher:
         return self.send_message(
             message,
             disable_web_page_preview=False,
-              )
+        )
