@@ -1,6 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from .config import (
     SITE_URL,
@@ -12,6 +12,7 @@ from .config import (
 class WebsiteScraper:
     def __init__(self):
         self.session = requests.Session()
+
         self.session.headers.update(
             {
                 "User-Agent": USER_AGENT,
@@ -38,6 +39,22 @@ class WebsiteScraper:
         return self.fetch(SITE_URL)
 
     def get_download_links(self, movie_url: str) -> list[str]:
+        """
+        Extract download/protected links from a movie page.
+
+        The returned URLs are the actual href values of
+        download/protected link buttons such as:
+
+        - Google Drive Direct Links
+        - SERVER 01
+        - SERVER 02
+        - SERVER 03
+        - SERVER 04
+        - SERVER 05
+        - SERVER 06
+        - 1080P WEB-DL LINK
+        """
+
         html = self.fetch(movie_url)
 
         soup = BeautifulSoup(
@@ -59,7 +76,10 @@ class WebsiteScraper:
             "1080P WEB-DL",
         )
 
-        for link in soup.find_all("a", href=True):
+        for link in soup.find_all(
+            "a",
+            href=True,
+        ):
 
             text = link.get_text(
                 " ",
@@ -74,6 +94,7 @@ class WebsiteScraper:
             if not href:
                 continue
 
+            # Only download/protected link buttons.
             if not any(
                 keyword in text
                 for keyword in keywords
@@ -85,6 +106,16 @@ class WebsiteScraper:
                 href,
             )
 
+            # Ignore invalid URLs.
+            parsed = urlparse(absolute_url)
+
+            if not parsed.scheme:
+                continue
+
+            if not parsed.netloc:
+                continue
+
+            # Avoid duplicate download/protected URLs.
             if absolute_url in seen_links:
                 continue
 
@@ -104,6 +135,10 @@ class WebsiteScraper:
         posts = []
         seen_urls = set()
 
+        site_host = urlparse(
+            SITE_URL
+        ).netloc.lower()
+
         for link in soup.find_all(
             "a",
             href=True,
@@ -122,19 +157,19 @@ class WebsiteScraper:
                 href,
             )
 
+            parsed_url = urlparse(
+                absolute_url
+            )
+
             # Only links from our website.
-            if not absolute_url.startswith(
-                SITE_URL
-            ):
+            if parsed_url.netloc.lower() != site_host:
                 continue
 
             # Only movie pages.
-            # This excludes category pages
-            # and other website links.
-            if "/movie/" not in absolute_url.lower():
+            if "/movie/" not in parsed_url.path.lower():
                 continue
 
-            # Avoid duplicate URLs on the homepage.
+            # Avoid duplicate movie URLs on homepage.
             if absolute_url in seen_urls:
                 continue
 
@@ -148,9 +183,14 @@ class WebsiteScraper:
 
             seen_urls.add(absolute_url)
 
-            download_links = self.get_download_links(
-                absolute_url
-            )
+            # Extract download/protected links
+            # from the movie page.
+            try:
+                download_links = self.get_download_links(
+                    absolute_url
+                )
+            except requests.RequestException:
+                download_links = []
 
             posts.append(
                 {
