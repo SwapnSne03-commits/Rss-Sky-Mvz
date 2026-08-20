@@ -60,13 +60,20 @@ class WebsiteScraper:
     @staticmethod
     def _is_quality_text(text: str) -> bool:
         """
-        Detect only quality-related headings.
+        Detect genuine quality headings.
 
         Examples:
-        1080p 10bit HEVC
         1080p WEB-DL
+        1080P 10Bit HEVC LINK
         2160p HEVC
         2160p SDR HEVC LINK
+        720p HDRip
+        4K HEVC
+
+        Generic text such as:
+        WATCH ONLINE Google Drive Direct Links
+        SERVER 01 SERVER 02
+        is ignored.
         """
 
         text = " ".join(
@@ -78,7 +85,7 @@ class WebsiteScraper:
 
         quality_pattern = re.compile(
             r"""
-            \b
+            ^
             (?:
                 480p|
                 576p|
@@ -89,24 +96,21 @@ class WebsiteScraper:
                 4k
             )
             \b
-            .*?
             (?:
-                web[-\s]?dl|
-                webdl|
-                hevc|
-                h265|
-                x265|
-                10bit|
-                8bit|
-                sdr|
-                hdr
-            )
+                \s+
+                [A-Za-z0-9.+\-/]+
+            )*
+            (?:
+                \s+
+                (?:LINK|LINKS)
+            )?
+            $
             """,
             re.IGNORECASE | re.VERBOSE,
         )
 
         return bool(
-            quality_pattern.search(text)
+            quality_pattern.match(text)
         )
 
     def _find_quality_section(
@@ -114,14 +118,15 @@ class WebsiteScraper:
         link,
     ) -> str | None:
         """
-        Find the nearest quality heading appearing
-        before a download link on the movie page.
+        Find the nearest genuine quality heading
+        before a download/intermediary link.
 
-        Server headings such as SERVER 01, SERVER 02
-        are ignored.
+        Only nearby heading-like elements are checked.
+
+        Large parent containers and generic text such as
+        SERVER / WATCH ONLINE are ignored.
         """
 
-        # Tags that commonly contain section headings.
         heading_tags = (
             "h1",
             "h2",
@@ -129,19 +134,22 @@ class WebsiteScraper:
             "h4",
             "h5",
             "h6",
-            "p",
-            "div",
-            "span",
             "strong",
             "b",
             "center",
-            "td",
-            "li",
         )
+
+        checked = 0
 
         for previous in link.find_all_previous(
             heading_tags
         ):
+
+            checked += 1
+
+            if checked > 12:
+                break
+
             text = self._clean_text(
                 previous.get_text(
                     " ",
@@ -152,10 +160,7 @@ class WebsiteScraper:
             if not text:
                 continue
 
-            # Ignore extremely large containers.
-            # They are usually parent containers containing
-            # many links rather than actual headings.
-            if len(text) > 150:
+            if len(text) > 100:
                 continue
 
             if self._is_quality_text(text):
@@ -163,13 +168,60 @@ class WebsiteScraper:
 
         return None
 
+    @staticmethod
+    def _is_watch_online_url(
+        url: str,
+    ) -> bool:
+        """
+        Detect direct WATCH ONLINE links.
+
+        Only URLs in this format are accepted:
+
+        https://tpead.net/v/XXXXXXXX
+
+        No other tpead.net path is accepted.
+        """
+
+        try:
+            parsed = urlparse(url)
+        except Exception:
+            return False
+
+        if parsed.scheme not in (
+            "http",
+            "https",
+        ):
+            return False
+
+        hostname = (
+            parsed.netloc
+            .lower()
+            .strip()
+        )
+
+        if hostname.startswith("www."):
+            hostname = hostname[4:]
+
+        if hostname != "tpead.net":
+            return False
+
+        path = parsed.path.rstrip("/")
+
+        return bool(
+            re.fullmatch(
+                r"/v/[^/]+",
+                path,
+                re.IGNORECASE,
+            )
+        )
+
     def _get_allowed_host_name(
         self,
         hostname: str,
     ) -> str | None:
         """
-        Return the configured display name if the hostname
-        belongs to one of our allowed file hosts.
+        Return the configured display name if the
+        hostname belongs to one of our allowed hosts.
         """
 
         hostname = self._clean_host(
@@ -243,7 +295,7 @@ class WebsiteScraper:
         The intermediary URL itself is never returned.
 
         The section value is preserved so Publisher.py
-        can later group quality-specific links.
+        can group quality-specific links.
         """
 
         html = self.fetch(
@@ -368,16 +420,20 @@ class WebsiteScraper:
         Find all intermediary/server links from a movie
         page and extract only allowed final file-host links.
 
-        Quality headings such as:
+        Supported special sections:
 
-        1080p WEB-DL
-        1080p 10bit HEVC LINK
-        2160p HEVC
-        2160p SDR HEVC LINK
+        1. WATCH ONLINE
+           Only direct tpead.net/v/... links.
 
-        are preserved with their corresponding links.
+        2. Quality-specific sections
+           Examples:
+           1080p WEB-DL
+           1080P 10Bit HEVC LINK
+           2160p HEVC
+           2160p SDR HEVC LINK
 
-        Normal SERVER headings remain unclassified.
+        Normal allowed server links remain unclassified
+        and will be shown under All Cloud Links.
         """
 
         html = self.fetch(
@@ -392,23 +448,21 @@ class WebsiteScraper:
         final_links = []
         seen_final_urls = set()
         seen_intermediary_urls = set()
-
-        site_host = self._clean_host(
-            urlparse(
-                movie_url
-            ).netloc
-        )
+        watch_online_links = []
 
         protected_host = self._clean_host(
             PROTECTED_LINK_DOMAIN
         )
 
-        # Find every link on the movie page that points
-        # to our configured intermediary service.
+        # -------------------------------------------------
+        # FIND LINKS ON MOVIE PAGE
+        # -------------------------------------------------
+
         for link in soup.find_all(
             "a",
             href=True,
         ):
+
             href = link.get(
                 "href",
                 "",
@@ -417,13 +471,31 @@ class WebsiteScraper:
             if not href:
                 continue
 
-            intermediary_url = urljoin(
+            absolute_url = urljoin(
                 movie_url,
                 href,
             )
 
+            # -------------------------------------------------
+            # WATCH ONLINE
+            # -------------------------------------------------
+
+            if self._is_watch_online_url(
+                absolute_url
+            ):
+
+                if (
+                    absolute_url
+                    not in watch_online_links
+                ):
+                    watch_online_links.append(
+                        absolute_url
+                    )
+
+                continue
+
             parsed = urlparse(
-                intermediary_url
+                absolute_url
             )
 
             if parsed.scheme not in (
@@ -440,15 +512,20 @@ class WebsiteScraper:
             if hostname != protected_host:
                 continue
 
-            if intermediary_url in seen_intermediary_urls:
+            if (
+                absolute_url
+                in seen_intermediary_urls
+            ):
                 continue
 
             seen_intermediary_urls.add(
-                intermediary_url
+                absolute_url
             )
 
-            # Detect whether this particular link belongs
-            # to a quality section.
+            # -------------------------------------------------
+            # QUALITY DETECTION
+            # -------------------------------------------------
+
             quality_section = (
                 self._find_quality_section(
                     link
@@ -458,13 +535,17 @@ class WebsiteScraper:
             try:
                 extracted_links = (
                     self._extract_allowed_links(
-                        intermediary_url,
+                        absolute_url,
                         section=quality_section,
                     )
                 )
 
             except requests.RequestException:
                 continue
+
+            # -------------------------------------------------
+            # SAVE ALLOWED FILE HOST LINKS
+            # -------------------------------------------------
 
             for item in extracted_links:
 
@@ -479,14 +560,13 @@ class WebsiteScraper:
                 if url in seen_final_urls:
                     continue
 
-                # Extra safety:
-                # never allow the intermediary itself.
                 final_host = self._clean_host(
                     urlparse(
                         url
                     ).netloc
                 )
 
+                # Never return intermediary service.
                 if final_host == protected_host:
                     continue
 
@@ -519,9 +599,33 @@ class WebsiteScraper:
                     result
                 )
 
+        # -------------------------------------------------
+        # ADD WATCH ONLINE LINKS
+        # -------------------------------------------------
+
+        for watch_url in watch_online_links:
+
+            if watch_url in seen_final_urls:
+                continue
+
+            final_links.append(
+                {
+                    "url": watch_url,
+                    "host": "watch_online",
+                    "section": "WATCH ONLINE",
+                }
+            )
+
+            seen_final_urls.add(
+                watch_url
+            )
+
         return final_links
 
-    def get_latest_posts(self) -> list[dict]:
+    def get_latest_posts(
+        self,
+    ) -> list[dict]:
+
         html = self.get_homepage()
 
         soup = BeautifulSoup(
@@ -542,6 +646,7 @@ class WebsiteScraper:
             "a",
             href=True,
         ):
+
             href = link.get(
                 "href",
                 "",
