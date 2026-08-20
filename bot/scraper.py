@@ -60,20 +60,14 @@ class WebsiteScraper:
     @staticmethod
     def _is_quality_text(text: str) -> bool:
         """
-        Detect genuine quality headings.
+        Detect quality-specific section names.
 
         Examples:
-        1080p WEB-DL
+        720P 10Bit HEVC LINK
         1080P 10Bit HEVC LINK
+        1080p WEB-DL
         2160p HEVC
         2160p SDR HEVC LINK
-        720p HDRip
-        4K HEVC
-
-        Generic text such as:
-        WATCH ONLINE Google Drive Direct Links
-        SERVER 01 SERVER 02
-        is ignored.
         """
 
         text = " ".join(
@@ -85,7 +79,7 @@ class WebsiteScraper:
 
         quality_pattern = re.compile(
             r"""
-            ^
+            \b
             (?:
                 480p|
                 576p|
@@ -96,90 +90,33 @@ class WebsiteScraper:
                 4k
             )
             \b
+            .*?
             (?:
-                \s+
-                [A-Za-z0-9.+\-/]+
-            )*
-            (?:
-                \s+
-                (?:LINK|LINKS)
-            )?
-            $
+                web[-\s]?dl|
+                webdl|
+                hevc|
+                h265|
+                x265|
+                10bit|
+                8bit|
+                sdr|
+                hdr
+            )
             """,
             re.IGNORECASE | re.VERBOSE,
         )
 
         return bool(
-            quality_pattern.match(text)
+            quality_pattern.search(text)
         )
-
-    def _find_quality_section(
-        self,
-        link,
-    ) -> str | None:
-        """
-        Find the nearest genuine quality heading
-        before a download/intermediary link.
-
-        Only nearby heading-like elements are checked.
-
-        Large parent containers and generic text such as
-        SERVER / WATCH ONLINE are ignored.
-        """
-
-        heading_tags = (
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "h5",
-            "h6",
-            "strong",
-            "b",
-            "center",
-        )
-
-        checked = 0
-
-        for previous in link.find_all_previous(
-            heading_tags
-        ):
-
-            checked += 1
-
-            if checked > 12:
-                break
-
-            text = self._clean_text(
-                previous.get_text(
-                    " ",
-                    strip=True,
-                )
-            )
-
-            if not text:
-                continue
-
-            if len(text) > 100:
-                continue
-
-            if self._is_quality_text(text):
-                return text
-
-        return None
 
     @staticmethod
-    def _is_watch_online_url(
-        url: str,
-    ) -> bool:
+    def _is_watch_online_url(url: str) -> bool:
         """
-        Detect direct WATCH ONLINE links.
+        Detect direct Watch Online links.
 
-        Only URLs in this format are accepted:
-
-        https://tpead.net/v/XXXXXXXX
-
-        No other tpead.net path is accepted.
+        Example:
+        https://tpead.net/v/A4LZoQ1aKecXAxP
         """
 
         try:
@@ -202,27 +139,64 @@ class WebsiteScraper:
         if hostname.startswith("www."):
             hostname = hostname[4:]
 
-        if hostname != "tpead.net":
-            return False
-
-        path = parsed.path.rstrip("/")
-
-        return bool(
-            re.fullmatch(
-                r"/v/[^/]+",
-                path,
-                re.IGNORECASE,
+        return (
+            hostname == "tpead.net"
+            or hostname.endswith(
+                ".tpead.net"
             )
         )
+
+    def _find_quality_section(
+        self,
+        link,
+    ) -> str | None:
+        """
+        Find a nearby quality heading when the current
+        link itself is not the quality link.
+        """
+
+        heading_tags = (
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "p",
+            "div",
+            "span",
+            "strong",
+            "b",
+            "center",
+            "td",
+            "li",
+        )
+
+        for previous in link.find_all_previous(
+            heading_tags
+        ):
+            text = self._clean_text(
+                previous.get_text(
+                    " ",
+                    strip=True,
+                )
+            )
+
+            if not text:
+                continue
+
+            if len(text) > 150:
+                continue
+
+            if self._is_quality_text(text):
+                return text
+
+        return None
 
     def _get_allowed_host_name(
         self,
         hostname: str,
     ) -> str | None:
-        """
-        Return the configured display name if the
-        hostname belongs to one of our allowed hosts.
-        """
 
         hostname = self._clean_host(
             hostname
@@ -237,18 +211,14 @@ class WebsiteScraper:
                 domain
             )
 
-            # Exact match.
             if hostname == domain:
                 return display_name
 
-            # Support subdomains.
             if hostname.endswith(
                 "." + domain
             ):
                 return display_name
 
-            # Some configured hosts may be partial
-            # identifiers such as hubcloud or gdflix.
             if domain in hostname:
                 return display_name
 
@@ -258,10 +228,6 @@ class WebsiteScraper:
         self,
         url: str,
     ) -> bool:
-        """
-        Check whether a URL belongs to one of the
-        allowed final file-host services.
-        """
 
         try:
             parsed = urlparse(url)
@@ -289,13 +255,11 @@ class WebsiteScraper:
         section: str | None = None,
     ) -> list[dict]:
         """
-        Open an intermediary page and extract only
-        explicitly allowed final file-host links.
+        Open an intermediary/quality page and extract
+        only configured allowed file-host links.
 
-        The intermediary URL itself is never returned.
-
-        The section value is preserved so Publisher.py
-        can group quality-specific links.
+        If section is supplied, every extracted link
+        receives that section name.
         """
 
         html = self.fetch(
@@ -310,8 +274,10 @@ class WebsiteScraper:
         links = []
         seen_urls = set()
 
-        # First check the final URL after normal
-        # HTTP redirects.
+        # -------------------------------------------------
+        # Check final URL after redirects
+        # -------------------------------------------------
+
         try:
             response = self.session.get(
                 page_url,
@@ -354,12 +320,15 @@ class WebsiteScraper:
         except requests.RequestException:
             pass
 
-        # Extract normal <a href="..."> links
-        # from the intermediary page.
+        # -------------------------------------------------
+        # Extract normal <a href=""> links
+        # -------------------------------------------------
+
         for link in soup.find_all(
             "a",
             href=True,
         ):
+
             href = link.get(
                 "href",
                 "",
@@ -412,56 +381,49 @@ class WebsiteScraper:
 
         return links
 
-    def get_download_links(
+    def _extract_quality_links(
         self,
         movie_url: str,
+        soup,
+        seen_final_urls: set,
     ) -> list[dict]:
         """
-        Find all intermediary/server links from a movie
-        page and extract only allowed final file-host links.
+        Detect clickable quality links directly from the
+        movie page.
 
-        Supported special sections:
+        Example:
 
-        1. WATCH ONLINE
-           Only direct tpead.net/v/... links.
+        720P 10Bit HEVC LINK
+                ↓
+        https://howblogs.xyz/e31cd0
+                ↓
+        allowed file-share links
 
-        2. Quality-specific sections
-           Examples:
-           1080p WEB-DL
-           1080P 10Bit HEVC LINK
-           2160p HEVC
-           2160p SDR HEVC LINK
-
-        Normal allowed server links remain unclassified
-        and will be shown under All Cloud Links.
+        The extracted file links are assigned to the
+        original quality text.
         """
 
-        html = self.fetch(
-            movie_url
-        )
-
-        soup = BeautifulSoup(
-            html,
-            "lxml",
-        )
-
-        final_links = []
-        seen_final_urls = set()
-        seen_intermediary_urls = set()
-        watch_online_links = []
-
-        protected_host = self._clean_host(
-            PROTECTED_LINK_DOMAIN
-        )
-
-        # -------------------------------------------------
-        # FIND LINKS ON MOVIE PAGE
-        # -------------------------------------------------
+        quality_links = []
 
         for link in soup.find_all(
             "a",
             href=True,
         ):
+
+            quality_text = self._clean_text(
+                link.get_text(
+                    " ",
+                    strip=True,
+                )
+            )
+
+            if not quality_text:
+                continue
+
+            if not self._is_quality_text(
+                quality_text
+            ):
+                continue
 
             href = link.get(
                 "href",
@@ -471,81 +433,28 @@ class WebsiteScraper:
             if not href:
                 continue
 
-            absolute_url = urljoin(
+            quality_url = urljoin(
                 movie_url,
                 href,
             )
 
-            # -------------------------------------------------
-            # WATCH ONLINE
-            # -------------------------------------------------
-
-            if self._is_watch_online_url(
-                absolute_url
-            ):
-
-                if (
-                    absolute_url
-                    not in watch_online_links
-                ):
-                    watch_online_links.append(
-                        absolute_url
-                    )
-
-                continue
-
-            parsed = urlparse(
-                absolute_url
-            )
-
-            if parsed.scheme not in (
-                "http",
-                "https",
+            # Do not treat the quality page itself
+            # as a file-host link.
+            if self._is_allowed_url(
+                quality_url
             ):
                 continue
-
-            hostname = self._clean_host(
-                parsed.netloc
-            )
-
-            # Only process our intermediary service.
-            if hostname != protected_host:
-                continue
-
-            if (
-                absolute_url
-                in seen_intermediary_urls
-            ):
-                continue
-
-            seen_intermediary_urls.add(
-                absolute_url
-            )
-
-            # -------------------------------------------------
-            # QUALITY DETECTION
-            # -------------------------------------------------
-
-            quality_section = (
-                self._find_quality_section(
-                    link
-                )
-            )
 
             try:
                 extracted_links = (
                     self._extract_allowed_links(
-                        absolute_url,
-                        section=quality_section,
+                        quality_url,
+                        section=quality_text,
                     )
                 )
 
             except requests.RequestException:
                 continue
-
-            # -------------------------------------------------
-            # SAVE ALLOWED FILE HOST LINKS
-            # -------------------------------------------------
 
             for item in extracted_links:
 
@@ -566,7 +475,204 @@ class WebsiteScraper:
                     ).netloc
                 )
 
-                # Never return intermediary service.
+                display_name = (
+                    self._get_allowed_host_name(
+                        final_host
+                    )
+                )
+
+                if not display_name:
+                    continue
+
+                result = {
+                    "url": url,
+                    "host": display_name,
+                    "section": quality_text,
+                }
+
+                seen_final_urls.add(
+                    url
+                )
+
+                quality_links.append(
+                    result
+                )
+
+        return quality_links
+
+    def get_download_links(
+        self,
+        movie_url: str,
+    ) -> list[dict]:
+
+        html = self.fetch(
+            movie_url
+        )
+
+        soup = BeautifulSoup(
+            html,
+            "lxml",
+        )
+
+        final_links = []
+        seen_final_urls = set()
+        seen_intermediary_urls = set()
+
+        protected_host = self._clean_host(
+            PROTECTED_LINK_DOMAIN
+        )
+
+        # =================================================
+        # 1. QUALITY-SPECIFIC LINKS
+        # =================================================
+
+        quality_links = (
+            self._extract_quality_links(
+                movie_url,
+                soup,
+                seen_final_urls,
+            )
+        )
+
+        final_links.extend(
+            quality_links
+        )
+
+        # =================================================
+        # 2. ALL OTHER LINKS ON MOVIE PAGE
+        # =================================================
+
+        for link in soup.find_all(
+            "a",
+            href=True,
+        ):
+
+            href = link.get(
+                "href",
+                "",
+            ).strip()
+
+            if not href:
+                continue
+
+            absolute_url = urljoin(
+                movie_url,
+                href,
+            )
+
+            parsed = urlparse(
+                absolute_url
+            )
+
+            if parsed.scheme not in (
+                "http",
+                "https",
+            ):
+                continue
+
+            # ---------------------------------------------
+            # WATCH ONLINE
+            # ---------------------------------------------
+
+            if self._is_watch_online_url(
+                absolute_url
+            ):
+                if absolute_url in seen_final_urls:
+                    continue
+
+                result = {
+                    "url": absolute_url,
+                    "host": "watch_online",
+                    "section": "WATCH ONLINE",
+                }
+
+                seen_final_urls.add(
+                    absolute_url
+                )
+
+                final_links.append(
+                    result
+                )
+
+                continue
+
+            hostname = self._clean_host(
+                parsed.netloc
+            )
+
+            # ---------------------------------------------
+            # Skip direct quality links here.
+            #
+            # They were already processed above.
+            # ---------------------------------------------
+
+            link_text = self._clean_text(
+                link.get_text(
+                    " ",
+                    strip=True,
+                )
+            )
+
+            if self._is_quality_text(
+                link_text
+            ):
+                continue
+
+            # ---------------------------------------------
+            # Only process configured protected/server
+            # intermediary links.
+            # ---------------------------------------------
+
+            if hostname != protected_host:
+                continue
+
+            if absolute_url in seen_intermediary_urls:
+                continue
+
+            seen_intermediary_urls.add(
+                absolute_url
+            )
+
+            # Try to find a quality heading nearby.
+            # This is kept as a fallback for pages where
+            # the quality text is not itself clickable.
+            quality_section = (
+                self._find_quality_section(
+                    link
+                )
+            )
+
+            try:
+                extracted_links = (
+                    self._extract_allowed_links(
+                        absolute_url,
+                        section=quality_section,
+                    )
+                )
+
+            except requests.RequestException:
+                continue
+
+            for item in extracted_links:
+
+                url = item.get(
+                    "url",
+                    "",
+                ).strip()
+
+                if not url:
+                    continue
+
+                if url in seen_final_urls:
+                    continue
+
+                final_host = self._clean_host(
+                    urlparse(
+                        url
+                    ).netloc
+                )
+
+                # Never return the protected server itself.
                 if final_host == protected_host:
                     continue
 
@@ -584,12 +690,10 @@ class WebsiteScraper:
                     "host": display_name,
                 }
 
-                section = item.get(
-                    "section"
-                )
-
-                if section:
-                    result["section"] = section
+                if quality_section:
+                    result["section"] = (
+                        quality_section
+                    )
 
                 seen_final_urls.add(
                     url
@@ -599,32 +703,9 @@ class WebsiteScraper:
                     result
                 )
 
-        # -------------------------------------------------
-        # ADD WATCH ONLINE LINKS
-        # -------------------------------------------------
-
-        for watch_url in watch_online_links:
-
-            if watch_url in seen_final_urls:
-                continue
-
-            final_links.append(
-                {
-                    "url": watch_url,
-                    "host": "watch_online",
-                    "section": "WATCH ONLINE",
-                }
-            )
-
-            seen_final_urls.add(
-                watch_url
-            )
-
         return final_links
 
-    def get_latest_posts(
-        self,
-    ) -> list[dict]:
+    def get_latest_posts(self) -> list[dict]:
 
         html = self.get_homepage()
 
@@ -676,8 +757,6 @@ class WebsiteScraper:
             ):
                 continue
 
-            # Avoid duplicate references to the same
-            # movie post on the homepage.
             if absolute_url in seen_urls:
                 continue
 
