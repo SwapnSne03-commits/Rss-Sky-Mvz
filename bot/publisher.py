@@ -97,6 +97,7 @@ class TelegramPublisher:
         gofile_url = ""
         cloud_links = []
         quality_sections = {}
+        watch_online_links = []
 
         seen_urls = set()
 
@@ -123,12 +124,17 @@ class TelegramPublisher:
             if not url:
                 continue
 
+            # Prevent the same URL from appearing
+            # more than once in the same Telegram post.
             if url in seen_urls:
                 continue
 
             seen_urls.add(url)
 
-            # GoFile gets its own dedicated section.
+            # -------------------------------------------------
+            # GOFILE
+            # -------------------------------------------------
+
             if host == "gofile":
 
                 if not gofile_url:
@@ -136,7 +142,25 @@ class TelegramPublisher:
 
                 continue
 
-            # Quality-specific links.
+            # -------------------------------------------------
+            # WATCH ONLINE
+            # -------------------------------------------------
+
+            if (
+                host == "watch_online"
+                or section.upper() == "WATCH ONLINE"
+            ):
+
+                watch_online_links.append(
+                    url
+                )
+
+                continue
+
+            # -------------------------------------------------
+            # QUALITY-SPECIFIC LINKS
+            # -------------------------------------------------
+
             if section:
 
                 if section not in quality_sections:
@@ -148,22 +172,39 @@ class TelegramPublisher:
 
                 continue
 
-            # Everything else goes into All Cloud Links.
-            cloud_links.append(url)
+            # -------------------------------------------------
+            # NORMAL CLOUD LINKS
+            # -------------------------------------------------
+
+            cloud_links.append(
+                url
+            )
+
+        # -------------------------------------------------
+        # CHECK WHETHER ANYTHING WAS FOUND
+        # -------------------------------------------------
 
         if (
             not gofile_url
             and not cloud_links
             and not quality_sections
+            and not watch_online_links
         ):
             raise ValueError(
                 "No allowed file-host links found."
             )
 
+        # -------------------------------------------------
+        # HEADER + TITLE
+        # -------------------------------------------------
+
         lines = [
             "<b>🎬 New Post Just Dropped! ✅</b>",
             "",
-            f"<b>Title 💫:</b> <code>{self._escape_html(title)}</code>",
+            (
+                "<b>📌 Title :</b> "
+                f"<code>{self._escape_html(title)}</code>"
+            ),
         ]
 
         # -------------------------------------------------
@@ -176,7 +217,10 @@ class TelegramPublisher:
                 [
                     "",
                     "<b>🔰 GoFile Link 🔰</b>",
-                    f"• <b>{self._escape_html(gofile_url)}</b>",
+                    (
+                        "• "
+                        f"<b>{self._escape_html(gofile_url)}</b>"
+                    ),
                 ]
             )
 
@@ -197,8 +241,12 @@ class TelegramPublisher:
                 cloud_links,
                 start=1,
             ):
+
                 lines.append(
-                    f"<b>{index}. {self._escape_html(url)}</b>"
+                    (
+                        f"<b>{index}. "
+                        f"{self._escape_html(url)}</b>"
+                    )
                 )
 
         # -------------------------------------------------
@@ -213,7 +261,11 @@ class TelegramPublisher:
             lines.extend(
                 [
                     "",
-                    f"<b>{self._escape_html(section)}</b>",
+                    (
+                        f"<b>"
+                        f"{self._escape_html(section)}"
+                        f"</b>"
+                    ),
                 ]
             )
 
@@ -221,12 +273,43 @@ class TelegramPublisher:
                 urls,
                 start=1,
             ):
+
                 lines.append(
-                    f"<b>{index}. {self._escape_html(url)}</b>"
+                    (
+                        f"<b>{index}. "
+                        f"{self._escape_html(url)}</b>"
+                    )
                 )
 
-        message = "\n".join(lines)
+        # -------------------------------------------------
+        # WATCH ONLINE
+        # -------------------------------------------------
+
+        if watch_online_links:
+
+            lines.extend(
+                [
+                    "",
+                    "<b>👀 WATCH ONLINE</b>",
+                ]
+            )
+
+            for index, url in enumerate(
+                watch_online_links,
+                start=1,
+            ):
+
+                lines.append(
+                    (
+                        f"<b>{index}. "
+                        f"{self._escape_html(url)}</b>"
+                    )
+                )
+
+        message = "\n".join(
+            lines
+        )
 
         return self.send_message(
             message
-            )
+                )
