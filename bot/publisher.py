@@ -94,16 +94,33 @@ class TelegramPublisher:
             download_links or []
         )
 
+        # -------------------------------------------------
+        # LINK STORAGE
+        # -------------------------------------------------
+
         gofile_url = ""
+
+        other_gofile_links = []
+
         cloud_links = []
+
         quality_sections = {}
+
         watch_online_links = []
 
+        # Global duplicate protection.
         seen_urls = set()
+
+        # -------------------------------------------------
+        # PROCESS ALL LINKS
+        # -------------------------------------------------
 
         for link in download_links:
 
-            if not isinstance(link, dict):
+            if not isinstance(
+                link,
+                dict,
+            ):
                 continue
 
             url = link.get(
@@ -124,12 +141,16 @@ class TelegramPublisher:
             if not url:
                 continue
 
-            # Prevent the same URL from appearing
-            # more than once in the same Telegram post.
+            # -------------------------------------------------
+            # GLOBAL DUPLICATE CHECK
+            # -------------------------------------------------
+
             if url in seen_urls:
                 continue
 
-            seen_urls.add(url)
+            seen_urls.add(
+                url
+            )
 
             # -------------------------------------------------
             # GOFILE
@@ -137,8 +158,18 @@ class TelegramPublisher:
 
             if host == "gofile":
 
+                # First GoFile remains the main GoFile link.
                 if not gofile_url:
+
                     gofile_url = url
+
+                else:
+
+                    # Any additional unique GoFile links
+                    # go into Others Gofile Links.
+                    other_gofile_links.append(
+                        url
+                    )
 
                 continue
 
@@ -164,16 +195,21 @@ class TelegramPublisher:
             if section:
 
                 if section not in quality_sections:
-                    quality_sections[section] = []
+
+                    quality_sections[
+                        section
+                    ] = []
 
                 quality_sections[
                     section
-                ].append(url)
+                ].append(
+                    url
+                )
 
                 continue
 
             # -------------------------------------------------
-            # NORMAL CLOUD LINKS
+            # NORMAL SERVER / CLOUD LINKS
             # -------------------------------------------------
 
             cloud_links.append(
@@ -186,6 +222,7 @@ class TelegramPublisher:
 
         if (
             not gofile_url
+            and not other_gofile_links
             and not cloud_links
             and not quality_sections
             and not watch_online_links
@@ -203,12 +240,14 @@ class TelegramPublisher:
             "",
             (
                 "<b>📌 Title :</b> "
-                f"<code>{self._escape_html(title)}</code>"
+                f"<code>"
+                f"{self._escape_html(title)}"
+                f"</code>"
             ),
         ]
 
         # -------------------------------------------------
-        # GOFILE
+        # MAIN GOFILE
         # -------------------------------------------------
 
         if gofile_url:
@@ -219,10 +258,39 @@ class TelegramPublisher:
                     "<b>🔰 GoFile Link 🔰</b>",
                     (
                         "• "
-                        f"<b>{self._escape_html(gofile_url)}</b>"
+                        f"<b>"
+                        f"{self._escape_html(gofile_url)}"
+                        f"</b>"
                     ),
                 ]
             )
+
+            # -------------------------------------------------
+            # OTHER GOFILE LINKS
+            # -------------------------------------------------
+
+            if other_gofile_links:
+
+                lines.append(
+                    (
+                        "  ↳ "
+                        "<b>Others Gofile Links</b>"
+                    )
+                )
+
+                for index, url in enumerate(
+                    other_gofile_links,
+                    start=1,
+                ):
+
+                    lines.append(
+                        (
+                            f"    {index}. "
+                            f"<b>"
+                            f"{self._escape_html(url)}"
+                            f"</b>"
+                        )
+                    )
 
         # -------------------------------------------------
         # ALL CLOUD LINKS
@@ -245,7 +313,8 @@ class TelegramPublisher:
                 lines.append(
                     (
                         f"<b>{index}. "
-                        f"{self._escape_html(url)}</b>"
+                        f"{self._escape_html(url)}"
+                        f"</b>"
                     )
                 )
 
@@ -277,7 +346,8 @@ class TelegramPublisher:
                 lines.append(
                     (
                         f"<b>{index}. "
-                        f"{self._escape_html(url)}</b>"
+                        f"{self._escape_html(url)}"
+                        f"</b>"
                     )
                 )
 
@@ -302,9 +372,14 @@ class TelegramPublisher:
                 lines.append(
                     (
                         f"<b>{index}. "
-                        f"{self._escape_html(url)}</b>"
+                        f"{self._escape_html(url)}"
+                        f"</b>"
                     )
                 )
+
+        # -------------------------------------------------
+        # FINAL MESSAGE
+        # -------------------------------------------------
 
         message = "\n".join(
             lines
