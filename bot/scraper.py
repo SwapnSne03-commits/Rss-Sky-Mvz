@@ -146,53 +146,6 @@ class WebsiteScraper:
             )
         )
 
-    def _find_quality_section(
-        self,
-        link,
-    ) -> str | None:
-        """
-        Find a nearby quality heading when the current
-        link itself is not the quality link.
-        """
-
-        heading_tags = (
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "h5",
-            "h6",
-            "p",
-            "div",
-            "span",
-            "strong",
-            "b",
-            "center",
-            "td",
-            "li",
-        )
-
-        for previous in link.find_all_previous(
-            heading_tags
-        ):
-            text = self._clean_text(
-                previous.get_text(
-                    " ",
-                    strip=True,
-                )
-            )
-
-            if not text:
-                continue
-
-            if len(text) > 150:
-                continue
-
-            if self._is_quality_text(text):
-                return text
-
-        return None
-
     def _get_allowed_host_name(
         self,
         hostname: str,
@@ -258,8 +211,11 @@ class WebsiteScraper:
         Open an intermediary/quality page and extract
         only configured allowed file-host links.
 
-        If section is supplied, every extracted link
-        receives that section name.
+        If section is supplied, extracted links receive
+        that quality section.
+
+        For normal Server links, section is intentionally
+        left empty so they remain under All Cloud Links.
         """
 
         html = self.fetch(
@@ -388,8 +344,8 @@ class WebsiteScraper:
         seen_final_urls: set,
     ) -> list[dict]:
         """
-        Detect clickable quality links directly from the
-        movie page.
+        Detect clickable quality links directly from
+        the movie page.
 
         Example:
 
@@ -438,8 +394,8 @@ class WebsiteScraper:
                 href,
             )
 
-            # Do not treat the quality page itself
-            # as a file-host link.
+            # Do not treat a direct file-host URL
+            # as a quality intermediary page.
             if self._is_allowed_url(
                 quality_url
             ):
@@ -577,6 +533,7 @@ class WebsiteScraper:
             if self._is_watch_online_url(
                 absolute_url
             ):
+
                 if absolute_url in seen_final_urls:
                     continue
 
@@ -601,7 +558,7 @@ class WebsiteScraper:
             )
 
             # ---------------------------------------------
-            # Skip direct quality links here.
+            # Skip clickable quality links.
             #
             # They were already processed above.
             # ---------------------------------------------
@@ -633,20 +590,31 @@ class WebsiteScraper:
                 absolute_url
             )
 
-            # Try to find a quality heading nearby.
-            # This is kept as a fallback for pages where
-            # the quality text is not itself clickable.
-            quality_section = (
-                self._find_quality_section(
-                    link
-                )
-            )
+            # -------------------------------------------------
+            # IMPORTANT:
+            #
+            # Normal Server 01 / Server 02 / Server 03...
+            # links MUST NOT inherit a quality section.
+            #
+            # Previously _find_quality_section() was used here.
+            # That caused texts such as:
+            #
+            # WATCH ONLINE
+            # SERVER 01
+            # SERVER 02
+            # 1080P 10Bit HEVC LINK
+            #
+            # to get mixed into the section detection.
+            #
+            # These normal server links belong to
+            # All Cloud Links.
+            # -------------------------------------------------
 
             try:
                 extracted_links = (
                     self._extract_allowed_links(
                         absolute_url,
-                        section=quality_section,
+                        section=None,
                     )
                 )
 
@@ -685,15 +653,17 @@ class WebsiteScraper:
                 if not display_name:
                     continue
 
+                # -------------------------------------------------
+                # NO SECTION HERE.
+                #
+                # This guarantees that normal Server links
+                # go to All Cloud Links in Publisher.py.
+                # -------------------------------------------------
+
                 result = {
                     "url": url,
                     "host": display_name,
                 }
-
-                if quality_section:
-                    result["section"] = (
-                        quality_section
-                    )
 
                 seen_final_urls.add(
                     url
