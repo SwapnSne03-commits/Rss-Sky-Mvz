@@ -1,4 +1,3 @@
-import html
 import requests
 
 from .config import (
@@ -39,10 +38,25 @@ class TelegramPublisher:
                 "CHANNEL_ID is missing."
             )
 
+    @staticmethod
+    def _escape_html(text: str) -> str:
+        """
+        Escape characters that have special meaning
+        in Telegram HTML parse mode.
+        """
+
+        return (
+            text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+
     def send_message(
         self,
         text: str,
     ) -> dict:
+
         self._check_config()
 
         response = requests.post(
@@ -75,16 +89,38 @@ class TelegramPublisher:
     ) -> dict:
 
         title = title.strip()
-        download_links = download_links or []
+
+        download_links = (
+            download_links or []
+        )
+
+        # -------------------------------------------------
+        # LINK STORAGE
+        # -------------------------------------------------
 
         gofile_url = ""
-        cloud_urls = []
 
+        other_gofile_links = []
+
+        cloud_links = []
+
+        quality_sections = {}
+
+        watch_online_links = []
+
+        # Global duplicate protection.
         seen_urls = set()
+
+        # -------------------------------------------------
+        # PROCESS ALL LINKS
+        # -------------------------------------------------
 
         for link in download_links:
 
-            if not isinstance(link, dict):
+            if not isinstance(
+                link,
+                dict,
+            ):
                 continue
 
             url = link.get(
@@ -97,58 +133,258 @@ class TelegramPublisher:
                 "",
             ).strip().lower()
 
+            section = link.get(
+                "section",
+                "",
+            ).strip()
+
             if not url:
                 continue
+
+            # -------------------------------------------------
+            # GLOBAL DUPLICATE CHECK
+            # -------------------------------------------------
 
             if url in seen_urls:
                 continue
 
-            seen_urls.add(url)
+            seen_urls.add(
+                url
+            )
+
+            # -------------------------------------------------
+            # GOFILE
+            # -------------------------------------------------
 
             if host == "gofile":
-                if not gofile_url:
-                    gofile_url = url
-            else:
-                cloud_urls.append(url)
 
-        if not gofile_url and not cloud_urls:
+                # First GoFile remains the main GoFile link.
+                if not gofile_url:
+
+                    gofile_url = url
+
+                else:
+
+                    # Any additional unique GoFile links
+                    # go into Others Gofile Links.
+                    other_gofile_links.append(
+                        url
+                    )
+
+                continue
+
+            # -------------------------------------------------
+            # WATCH ONLINE
+            # -------------------------------------------------
+
+            if (
+                host == "watch_online"
+                or section.upper() == "WATCH ONLINE"
+            ):
+
+                watch_online_links.append(
+                    url
+                )
+
+                continue
+
+            # -------------------------------------------------
+            # QUALITY-SPECIFIC LINKS
+            # -------------------------------------------------
+
+            if section:
+
+                if section not in quality_sections:
+
+                    quality_sections[
+                        section
+                    ] = []
+
+                quality_sections[
+                    section
+                ].append(
+                    url
+                )
+
+                continue
+
+            # -------------------------------------------------
+            # NORMAL SERVER / CLOUD LINKS
+            # -------------------------------------------------
+
+            cloud_links.append(
+                url
+            )
+
+        # -------------------------------------------------
+        # CHECK WHETHER ANYTHING WAS FOUND
+        # -------------------------------------------------
+
+        if (
+            not gofile_url
+            and not other_gofile_links
+            and not cloud_links
+            and not quality_sections
+            and not watch_online_links
+        ):
             raise ValueError(
                 "No allowed file-host links found."
             )
 
-        safe_title = html.escape(title)
+        # -------------------------------------------------
+        # HEADER + TITLE
+        # -------------------------------------------------
 
         lines = [
-            "✅ <b>NEW FILE UPLOADED</b>",
+            "<b>🎬 New Post Just Dropped! ✅</b>",
             "",
-            f"📌 <b>Title :-</b> <code>{safe_title}</code>",
+            (
+                "<b>📌 Title :</b> "
+                f"<code>"
+                f"{self._escape_html(title)}"
+                f"</code>"
+            ),
         ]
 
+        # -------------------------------------------------
+        # MAIN GOFILE
+        # -------------------------------------------------
+
         if gofile_url:
+
             lines.extend(
                 [
                     "",
-                    "🔰 <b>GoFile Link 🔰</b>",
-                    f"• {gofile_url}",
+                    "<b>🔰 GoFile Link 🔰</b>",
+                    (
+                        "• "
+                        f"<b>"
+                        f"{self._escape_html(gofile_url)}"
+                        f"</b>"
+                    ),
                 ]
             )
 
-        if cloud_urls:
+            # -------------------------------------------------
+            # OTHER GOFILE LINKS
+            # -------------------------------------------------
+
+            if other_gofile_links:
+
+                lines.append(
+                    (
+                        "  ↳ "
+                        "<b>Others Gofile Links</b>"
+                    )
+                )
+
+                for index, url in enumerate(
+                    other_gofile_links,
+                    start=1,
+                ):
+
+                    lines.append(
+                        (
+                            f"    {index}. "
+                            f"<b>"
+                            f"{self._escape_html(url)}"
+                            f"</b>"
+                        )
+                    )
+
+        # -------------------------------------------------
+        # ALL CLOUD LINKS
+        # -------------------------------------------------
+
+        if cloud_links:
+
             lines.extend(
                 [
                     "",
-                    "🍿 <b>All Cloud Links 🍿</b>",
+                    "<b>🍿 All Cloud Links 🍿</b>",
                 ]
             )
 
             for index, url in enumerate(
-                cloud_urls,
+                cloud_links,
                 start=1,
             ):
+
                 lines.append(
-                    f"{index}. {url}"
+                    (
+                        f"<b>{index}. "
+                        f"{self._escape_html(url)}"
+                        f"</b>"
+                    )
                 )
 
-        message = "\n".join(lines)
+        # -------------------------------------------------
+        # QUALITY-SPECIFIC LINKS
+        # -------------------------------------------------
 
-        return self.send_message(message)
+        for section, urls in quality_sections.items():
+
+            if not urls:
+                continue
+
+            lines.extend(
+                [
+                    "",
+                    (
+                        f"<b>"
+                        f"{self._escape_html(section)}"
+                        f"</b>"
+                    ),
+                ]
+            )
+
+            for index, url in enumerate(
+                urls,
+                start=1,
+            ):
+
+                lines.append(
+                    (
+                        f"<b>{index}. "
+                        f"{self._escape_html(url)}"
+                        f"</b>"
+                    )
+                )
+
+        # -------------------------------------------------
+        # WATCH ONLINE
+        # -------------------------------------------------
+
+        if watch_online_links:
+
+            lines.extend(
+                [
+                    "",
+                    "<b>👀 WATCH ONLINE</b>",
+                ]
+            )
+
+            for index, url in enumerate(
+                watch_online_links,
+                start=1,
+            ):
+
+                lines.append(
+                    (
+                        f"<b>{index}. "
+                        f"{self._escape_html(url)}"
+                        f"</b>"
+                    )
+                )
+
+        # -------------------------------------------------
+        # FINAL MESSAGE
+        # -------------------------------------------------
+
+        message = "\n".join(
+            lines
+        )
+
+        return self.send_message(
+            message
+                )
