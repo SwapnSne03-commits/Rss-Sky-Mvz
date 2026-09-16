@@ -1,8 +1,16 @@
 import logging
 import time
 
+from telegram import Update
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes,
+)
+
 from .health import start_health_server
 from .config import (
+    BOT_TOKEN,
     CHECK_INTERVAL,
     validate_config,
 )
@@ -24,98 +32,86 @@ logger = logging.getLogger(__name__)
 
 
 class RSSBot:
-
     def __init__(self):
-
         validate_config()
 
         self.scraper = WebsiteScraper()
         self.database = Database()
         self.publisher = TelegramPublisher()
 
-        # -------------------------------------------------
-        # AUTHORIZATION FOUNDATION
-        # -------------------------------------------------
-        #
-        # Authorized groups will be stored here.
-        #
-        # The actual /sky_search handler will be added
-        # in the next step.
-        #
-
-        self.authorized_groups = set()
-
-        logger.info(
-            "Authorization system initialized."
+        # Telegram command application.
+        self.telegram_app = (
+            Application.builder()
+            .token(BOT_TOKEN)
+            .build()
         )
 
+        self._register_handlers()
+
     # =====================================================
-    # AUTHORIZATION HELPERS
+    # ADMIN AUTHORIZATION FOUNDATION
     # =====================================================
 
-    def is_group_authorized(
-        self,
-        chat_id: int,
+    @staticmethod
+    def is_admin(
+        update: Update,
     ) -> bool:
         """
-        Check whether a group is authorized
-        to use Sky Search.
+        Central authorization check for future
+        admin commands.
+
+        Actual admin IDs will be connected in
+        the next authorization step.
         """
 
-        return chat_id in self.authorized_groups
+        user = update.effective_user
 
-    def authorize_group(
-        self,
-        chat_id: int,
-    ) -> bool:
-        """
-        Authorize a group.
-
-        Returns True when the group was newly added.
-        Returns False if it was already authorized.
-        """
-
-        if chat_id in self.authorized_groups:
+        if not user:
             return False
 
-        self.authorized_groups.add(
-            chat_id
-        )
+        return False
 
-        logger.info(
-            "Group authorized: %s",
-            chat_id,
-        )
-
-        return True
-
-    def unauthorize_group(
+    async def unauthorized(
         self,
-        chat_id: int,
-    ) -> bool:
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
         """
-        Remove a group from authorization.
+        Common response for unauthorized users.
 
-        Returns True when removed.
-        Returns False if the group was not authorized.
+        This will be used by future admin commands.
         """
 
-        if chat_id not in self.authorized_groups:
-            return False
-
-        self.authorized_groups.remove(
-            chat_id
-        )
-
-        logger.info(
-            "Group authorization removed: %s",
-            chat_id,
-        )
-
-        return True
+        if update.effective_message:
+            await update.effective_message.reply_text(
+                "⛔ You are not authorized to use this command."
+            )
 
     # =====================================================
-    # SKY RSS
+    # COMMAND REGISTRATION
+    # =====================================================
+
+    def _register_handlers(self) -> None:
+        """
+        Register Telegram command handlers.
+
+        Actual admin commands will be added step by step.
+        """
+
+        # Foundation placeholder.
+        #
+        # Future examples:
+        #
+        # self.telegram_app.add_handler(
+        #     CommandHandler("status", self.cmd_status)
+        # )
+        #
+        # self.telegram_app.add_handler(
+        #     CommandHandler("pause", self.cmd_pause)
+        # )
+
+    # =====================================================
+    # WEBSITE PROCESSING
     # =====================================================
 
     def process_cycle(self) -> int:
@@ -126,10 +122,13 @@ class RSSBot:
 
         1. Scan the website.
         2. Detect only previously unprocessed source posts.
-        3. Extract allowed final file-host links.
+        3. Extract the allowed final file-host links.
         4. Publish every new source post to Telegram.
         5. Mark the source post as processed only after
            successful Telegram publishing.
+
+        Download-link history is NOT used to decide
+        whether a source post should be published.
         """
 
         logger.info(
@@ -228,31 +227,24 @@ class RSSBot:
             )
 
             try:
-
-                result = (
-                    self.publisher.publish_post(
-                        title=title,
-                        movie_url=movie_url,
-                        download_links=download_links,
-                    )
+                result = self.publisher.publish_post(
+                    title=title,
+                    movie_url=movie_url,
+                    download_links=download_links,
                 )
 
             except Exception:
-
                 logger.exception(
                     "Telegram publishing failed: %s",
                     movie_url,
                 )
-
                 continue
 
             if not result.get("ok"):
-
                 logger.error(
                     "Telegram API returned failure: %s",
                     movie_url,
                 )
-
                 continue
 
             logger.info(
@@ -261,33 +253,27 @@ class RSSBot:
             )
 
             try:
-
                 saved = self.database.save_post(
                     post_url=movie_url,
                     title=title,
                 )
 
                 if saved:
-
                     logger.info(
                         "Source post recorded: %s",
                         movie_url,
                     )
-
                 else:
-
                     logger.info(
                         "Source post was already recorded: %s",
                         movie_url,
                     )
 
             except Exception:
-
                 logger.exception(
                     "Failed to record source post: %s",
                     movie_url,
                 )
-
                 continue
 
             successfully_published += 1
@@ -300,11 +286,10 @@ class RSSBot:
         return successfully_published
 
     # =====================================================
-    # MAIN LOOP
+    # BOT RUNNER
     # =====================================================
 
     def run(self):
-
         logger.info(
             "RSS-Sky-Mvz bot started."
         )
@@ -317,11 +302,9 @@ class RSSBot:
         while True:
 
             try:
-
                 self.process_cycle()
 
             except Exception:
-
                 logger.exception(
                     "Unexpected error in processing cycle."
                 )
@@ -337,7 +320,6 @@ class RSSBot:
 
 
 def main():
-
     start_health_server()
 
     bot = RSSBot()
