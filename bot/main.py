@@ -40,7 +40,6 @@ class RSSBot:
         self.database = Database()
         self.publisher = TelegramPublisher()
 
-        # Telegram command application.
         self.telegram_app = (
             Application.builder()
             .token(BOT_TOKEN)
@@ -106,6 +105,34 @@ class RSSBot:
             "supergroup",
         )
 
+    def is_sky_group_authorized(
+        self,
+        update: Update,
+    ) -> bool:
+        """
+        Check whether the current group is authorized
+        to use Sky Search.
+        """
+
+        chat = update.effective_chat
+
+        if not chat:
+            return False
+
+        if chat.type not in (
+            "group",
+            "supergroup",
+        ):
+            return False
+
+        return self.database.is_group_authorized(
+            chat.id
+        )
+
+    # =====================================================
+    # SKY ADD
+    # =====================================================
+
     async def cmd_sky_add(
         self,
         update: Update,
@@ -116,20 +143,12 @@ class RSSBot:
         Admin only.
         """
 
-        # -------------------------------------------------
-        # BOT ADMIN CHECK
-        # -------------------------------------------------
-
         if not self.is_admin(update):
             await self.unauthorized(
                 update,
                 context,
             )
             return
-
-        # -------------------------------------------------
-        # GROUP-ONLY CHECK
-        # -------------------------------------------------
 
         if not self.is_group_chat(update):
 
@@ -147,10 +166,6 @@ class RSSBot:
             return
 
         chat_id = chat.id
-
-        # -------------------------------------------------
-        # ADD GROUP TO DATABASE
-        # -------------------------------------------------
 
         try:
             added = (
@@ -172,10 +187,6 @@ class RSSBot:
                 )
 
             return
-
-        # -------------------------------------------------
-        # RESULT
-        # -------------------------------------------------
 
         if update.effective_message:
 
@@ -200,6 +211,10 @@ class RSSBot:
                     "for Sky Search."
                 )
 
+    # =====================================================
+    # SKY REMOVE
+    # =====================================================
+
     async def cmd_sky_remove(
         self,
         update: Update,
@@ -210,20 +225,12 @@ class RSSBot:
         Admin only.
         """
 
-        # -------------------------------------------------
-        # BOT ADMIN CHECK
-        # -------------------------------------------------
-
         if not self.is_admin(update):
             await self.unauthorized(
                 update,
                 context,
             )
             return
-
-        # -------------------------------------------------
-        # GROUP-ONLY CHECK
-        # -------------------------------------------------
 
         if not self.is_group_chat(update):
 
@@ -241,10 +248,6 @@ class RSSBot:
             return
 
         chat_id = chat.id
-
-        # -------------------------------------------------
-        # REMOVE GROUP FROM DATABASE
-        # -------------------------------------------------
 
         try:
             removed = (
@@ -267,10 +270,6 @@ class RSSBot:
                 )
 
             return
-
-        # -------------------------------------------------
-        # RESULT
-        # -------------------------------------------------
 
         if update.effective_message:
 
@@ -296,6 +295,152 @@ class RSSBot:
                 )
 
     # =====================================================
+    # SKY SEARCH
+    # =====================================================
+
+    async def cmd_sky_search(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        """
+        Search Sky Movies from an authorized group.
+        """
+
+        if not self.is_sky_group_authorized(update):
+
+            if update.effective_message:
+                await update.effective_message.reply_text(
+                    "⛔ This group is not authorized "
+                    "to use Sky Search."
+                )
+
+            return
+
+        if not update.effective_message:
+            return
+
+        keyword = " ".join(
+            context.args
+        ).strip()
+
+        if not keyword:
+            await update.effective_message.reply_text(
+                "Usage:\n"
+                "/sky_search movie name"
+            )
+            return
+
+        await update.effective_message.reply_text(
+            f"🔎 Searching for: {keyword}"
+        )
+
+        logger.info(
+            "Sky Search requested: %s",
+            keyword,
+        )
+
+        try:
+            results = (
+                self.scraper.search_movies(
+                    keyword
+                )
+            )
+
+        except Exception:
+            logger.exception(
+                "Sky Movies search failed: %s",
+                keyword,
+            )
+
+            await update.effective_message.reply_text(
+                "❌ Search failed.\n"
+                "Please try again later."
+            )
+
+            return
+
+        if not results:
+
+            await update.effective_message.reply_text(
+                (
+                    "❌ No results found for:\n"
+                    f"<code>"
+                    f"{self.publisher._escape_html(keyword)}"
+                    f"</code>"
+                ),
+                parse_mode="HTML",
+            )
+
+            return
+
+        lines = [
+            (
+                "🔎 <b>Sky Movies Search</b>"
+            ),
+            "",
+            (
+                "Keyword: "
+                f"<code>"
+                f"{self.publisher._escape_html(keyword)}"
+                f"</code>"
+            ),
+            "",
+        ]
+
+        result_count = 0
+
+        for index, result in enumerate(
+            results,
+            start=1,
+        ):
+
+            title = result.get(
+                "title",
+                "",
+            ).strip()
+
+            url = result.get(
+                "url",
+                "",
+            ).strip()
+
+            if not title or not url:
+                continue
+
+            result_count += 1
+
+            lines.append(
+                (
+                    f"<b>{index}. "
+                    f"{self.publisher._escape_html(title)}</b>\n"
+                    f"{self.publisher._escape_html(url)}"
+                )
+            )
+
+            lines.append("")
+
+        if result_count == 0:
+
+            await update.effective_message.reply_text(
+                "❌ No valid results found."
+            )
+
+            return
+
+        await update.effective_message.reply_text(
+            "\n".join(lines).strip(),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+
+        logger.info(
+            "Sky Search completed: %s | Results: %d",
+            keyword,
+            result_count,
+        )
+
+    # =====================================================
     # COMMAND REGISTRATION
     # =====================================================
 
@@ -305,10 +450,6 @@ class RSSBot:
         """
         Register Telegram command handlers.
         """
-
-        # -------------------------------------------------
-        # SKY SEARCH AUTHORIZATION
-        # -------------------------------------------------
 
         self.telegram_app.add_handler(
             CommandHandler(
@@ -321,6 +462,13 @@ class RSSBot:
             CommandHandler(
                 "sky_remove",
                 self.cmd_sky_remove,
+            )
+        )
+
+        self.telegram_app.add_handler(
+            CommandHandler(
+                "sky_search",
+                self.cmd_sky_search,
             )
         )
 
@@ -388,10 +536,6 @@ class RSSBot:
 
             if not movie_url:
                 continue
-
-            # --------------------------------------------------
-            # SOURCE POST DUPLICATE CHECK
-            # --------------------------------------------------
 
             if self.database.post_exists(
                 movie_url
