@@ -56,10 +56,6 @@ class RSSBot:
     def is_admin(
         update: Update,
     ) -> bool:
-        """
-        Check whether the Telegram user is
-        an authorized bot admin.
-        """
 
         user = update.effective_user
 
@@ -73,9 +69,6 @@ class RSSBot:
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
     ) -> None:
-        """
-        Common response for unauthorized users.
-        """
 
         if update.effective_message:
             await update.effective_message.reply_text(
@@ -83,17 +76,13 @@ class RSSBot:
             )
 
     # =====================================================
-    # SKY SEARCH GROUP AUTHORIZATION
+    # GROUP AUTHORIZATION
     # =====================================================
 
     def is_group_chat(
         self,
         update: Update,
     ) -> bool:
-        """
-        Check whether the command was used inside
-        a group or supergroup.
-        """
 
         chat = update.effective_chat
 
@@ -109,10 +98,6 @@ class RSSBot:
         self,
         update: Update,
     ) -> bool:
-        """
-        Check whether the current group is authorized
-        to use Sky Search.
-        """
 
         chat = update.effective_chat
 
@@ -138,10 +123,6 @@ class RSSBot:
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
     ) -> None:
-        """
-        Authorize the current group for /sky_search.
-        Admin only.
-        """
 
         if not self.is_admin(update):
             await self.unauthorized(
@@ -188,28 +169,29 @@ class RSSBot:
 
             return
 
-        if update.effective_message:
+        if not update.effective_message:
+            return
 
-            if added:
+        if added:
 
-                await update.effective_message.reply_text(
-                    "✅ <b>Sky Search Authorized</b>\n\n"
-                    "This group can now use "
-                    "<code>/sky_search</code>.",
-                    parse_mode="HTML",
-                )
+            await update.effective_message.reply_text(
+                "✅ <b>Sky Search Authorized</b>\n\n"
+                "This group can now use "
+                "<code>/sky_search</code>.",
+                parse_mode="HTML",
+            )
 
-                logger.info(
-                    "Sky Search group authorized: %s",
-                    chat_id,
-                )
+            logger.info(
+                "Sky Search group authorized: %s",
+                chat_id,
+            )
 
-            else:
+        else:
 
-                await update.effective_message.reply_text(
-                    "ℹ️ This group is already authorized "
-                    "for Sky Search."
-                )
+            await update.effective_message.reply_text(
+                "ℹ️ This group is already authorized "
+                "for Sky Search."
+            )
 
     # =====================================================
     # SKY REMOVE
@@ -220,10 +202,6 @@ class RSSBot:
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
     ) -> None:
-        """
-        Remove the current group from Sky Search authorization.
-        Admin only.
-        """
 
         if not self.is_admin(update):
             await self.unauthorized(
@@ -271,28 +249,29 @@ class RSSBot:
 
             return
 
-        if update.effective_message:
+        if not update.effective_message:
+            return
 
-            if removed:
+        if removed:
 
-                await update.effective_message.reply_text(
-                    "✅ <b>Sky Search Authorization Removed</b>\n\n"
-                    "This group can no longer use "
-                    "<code>/sky_search</code>.",
-                    parse_mode="HTML",
-                )
+            await update.effective_message.reply_text(
+                "✅ <b>Sky Search Authorization Removed</b>\n\n"
+                "This group can no longer use "
+                "<code>/sky_search</code>.",
+                parse_mode="HTML",
+            )
 
-                logger.info(
-                    "Sky Search group authorization removed: %s",
-                    chat_id,
-                )
+            logger.info(
+                "Sky Search group authorization removed: %s",
+                chat_id,
+            )
 
-            else:
+        else:
 
-                await update.effective_message.reply_text(
-                    "ℹ️ This group was not authorized "
-                    "for Sky Search."
-                )
+            await update.effective_message.reply_text(
+                "ℹ️ This group was not authorized "
+                "for Sky Search."
+            )
 
     # =====================================================
     # SKY SEARCH
@@ -303,9 +282,6 @@ class RSSBot:
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
     ) -> None:
-        """
-        Search Sky Movies from an authorized group.
-        """
 
         if not self.is_sky_group_authorized(update):
 
@@ -325,10 +301,12 @@ class RSSBot:
         ).strip()
 
         if not keyword:
+
             await update.effective_message.reply_text(
                 "Usage:\n"
                 "/sky_search movie name"
             )
+
             return
 
         await update.effective_message.reply_text(
@@ -341,6 +319,7 @@ class RSSBot:
         )
 
         try:
+
             results = (
                 self.scraper.search_movies(
                     keyword
@@ -348,6 +327,7 @@ class RSSBot:
             )
 
         except Exception:
+
             logger.exception(
                 "Sky Movies search failed: %s",
                 keyword,
@@ -375,9 +355,7 @@ class RSSBot:
             return
 
         lines = [
-            (
-                "🔎 <b>Sky Movies Search</b>"
-            ),
+            "🔎 <b>Sky Movies Search</b>",
             "",
             (
                 "Keyword: "
@@ -447,9 +425,6 @@ class RSSBot:
     def _register_handlers(
         self,
     ) -> None:
-        """
-        Register Telegram command handlers.
-        """
 
         self.telegram_app.add_handler(
             CommandHandler(
@@ -479,35 +454,23 @@ class RSSBot:
     def process_cycle(
         self,
     ) -> int:
-        """
-        Run one complete website-check cycle.
-
-        Rules:
-
-        1. Scan the website.
-        2. Detect only previously unprocessed source posts.
-        3. Extract the allowed final file-host links.
-        4. Publish every new source post to Telegram.
-        5. Mark the source post as processed only after
-           successful Telegram publishing.
-
-        Download-link history is NOT used to decide
-        whether a source post should be published.
-        """
 
         logger.info(
             "Starting website check..."
         )
 
         try:
+
             posts = (
                 self.scraper.get_latest_posts()
             )
 
         except Exception:
+
             logger.exception(
                 "Failed to scrape website."
             )
+
             return 0
 
         logger.info(
@@ -518,11 +481,6 @@ class RSSBot:
         new_posts = []
 
         for post in posts:
-
-            title = post.get(
-                "title",
-                "",
-            ).strip()
 
             movie_url = post.get(
                 "url",
@@ -540,17 +498,21 @@ class RSSBot:
             if self.database.post_exists(
                 movie_url
             ):
+
                 logger.info(
                     "Already processed source post: %s",
                     movie_url,
                 )
+
                 continue
 
             if not download_links:
+
                 logger.info(
                     "No allowed file-host links found: %s",
                     movie_url,
                 )
+
                 continue
 
             new_posts.append(
@@ -678,6 +640,7 @@ class RSSBot:
     def run(
         self,
     ):
+
         logger.info(
             "RSS-Sky-Mvz bot started."
         )
