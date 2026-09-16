@@ -10,6 +10,7 @@ from telegram.ext import (
 
 from .health import start_health_server
 from .config import (
+    ADMIN_IDS,
     BOT_TOKEN,
     CHECK_INTERVAL,
     validate_config,
@@ -57,11 +58,7 @@ class RSSBot:
         update: Update,
     ) -> bool:
         """
-        Central authorization check for future
-        admin commands.
-
-        Actual admin IDs will be connected in
-        the next authorization step.
+        Check whether the Telegram user is an authorized admin.
         """
 
         user = update.effective_user
@@ -69,7 +66,7 @@ class RSSBot:
         if not user:
             return False
 
-        return False
+        return user.id in ADMIN_IDS
 
     async def unauthorized(
         self,
