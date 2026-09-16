@@ -56,6 +56,10 @@ GITHUB_STATE_FILE = os.getenv(
     "data/processed_posts.json",
 ).strip()
 
+SKY_AUTHORIZED_GROUPS_FILE = os.getenv(
+    "SKY_AUTHORIZED_GROUPS_FILE",
+    "data/sky_authorized_groups.json",
+).strip()
 
 # Protected-link/intermediary service
 # used by the website.
