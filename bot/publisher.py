@@ -1,7 +1,5 @@
 import requests
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
 from .config import (
     BOT_TOKEN,
     CHANNEL_ID,
@@ -52,18 +50,28 @@ class TelegramPublisher:
     def send_message(
         self,
         text: str,
+        chat_id=None,
+        reply_markup=None,
     ) -> dict:
 
         self._check_config()
 
+        if chat_id is None:
+            chat_id = self.channel_id
+
+        data = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
+
+        if reply_markup is not None:
+            data["reply_markup"] = reply_markup
+
         response = requests.post(
             self._api_url("sendMessage"),
-            data={
-                "chat_id": self.channel_id,
-                "text": text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-            },
+            data=data,
             timeout=REQUEST_TIMEOUT,
         )
 
@@ -78,96 +86,14 @@ class TelegramPublisher:
 
         return result
 
-    def send_search_results(
-        self,
-        keyword: str,
-        results: list[dict],
-        callback_data: list[str],
-    ) -> dict:
-
-        self._check_config()
-
-        keyword = keyword.strip()
-
-        buttons = []
-
-        for index, result in enumerate(
-            results
-        ):
-
-            if index >= len(callback_data):
-                break
-
-            title = result.get(
-                "title",
-                "",
-            ).strip()
-
-            callback = callback_data[
-                index
-            ]
-
-            if not title or not callback:
-                continue
-
-            buttons.append(
-                [
-                    InlineKeyboardButton(
-                        text=title,
-                        callback_data=callback,
-                    )
-                ]
-            )
-
-        if not buttons:
-            raise ValueError(
-                "No valid search results found."
-            )
-
-        text = (
-            "🔎 <b>Results for "
-            f"{self._escape_html(keyword)}:</b>"
-        )
-
-        response = requests.post(
-            self._api_url("sendMessage"),
-            data={
-                "chat_id": self.channel_id,
-                "text": text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-                "reply_markup": (
-                    InlineKeyboardMarkup(
-                        buttons
-                    ).to_json()
-                ),
-            },
-            timeout=REQUEST_TIMEOUT,
-        )
-
-        response.raise_for_status()
-
-        result = response.json()
-
-        if not result.get("ok"):
-            raise RuntimeError(
-                f"Telegram API error: {result}"
-            )
-
-        return result
-
-    def publish_post(
+    def build_links_message(
         self,
         title: str,
-        movie_url: str,
         download_links: list[dict] | None = None,
-    ) -> dict:
+    ) -> str:
 
         title = title.strip()
-
-        download_links = (
-            download_links or []
-        )
+        download_links = download_links or []
 
         gofile_url = ""
         other_gofile_links = []
@@ -179,10 +105,7 @@ class TelegramPublisher:
 
         for link in download_links:
 
-            if not isinstance(
-                link,
-                dict,
-            ):
+            if not isinstance(link, dict):
                 continue
 
             url = link.get(
@@ -200,10 +123,7 @@ class TelegramPublisher:
                 "",
             ).strip()
 
-            if not url:
-                continue
-
-            if url in seen_urls:
+            if not url or url in seen_urls:
                 continue
 
             seen_urls.add(url)
@@ -213,40 +133,27 @@ class TelegramPublisher:
                 if not gofile_url:
                     gofile_url = url
                 else:
-                    other_gofile_links.append(
-                        url
-                    )
+                    other_gofile_links.append(url)
 
                 continue
 
             if (
                 host == "watch_online"
-                or section.upper()
-                == "WATCH ONLINE"
+                or section.upper() == "WATCH ONLINE"
             ):
-
-                watch_online_links.append(
-                    url
-                )
-
+                watch_online_links.append(url)
                 continue
 
             if section:
 
-                if section not in quality_sections:
-                    quality_sections[
-                        section
-                    ] = []
-
-                quality_sections[
-                    section
-                ].append(url)
+                quality_sections.setdefault(
+                    section,
+                    [],
+                ).append(url)
 
                 continue
 
-            cloud_links.append(
-                url
-            )
+            cloud_links.append(url)
 
         if (
             not gofile_url
@@ -277,10 +184,9 @@ class TelegramPublisher:
                     "",
                     "<b>🔰 GoFile Link 🔰</b>",
                     (
-                        "• "
-                        f"<b>"
+                        "• <b>"
                         f"{self._escape_html(gofile_url)}"
-                        f"</b>"
+                        "</b>"
                     ),
                 ]
             )
@@ -295,13 +201,11 @@ class TelegramPublisher:
                     other_gofile_links,
                     start=1,
                 ):
-
                     lines.append(
                         (
-                            f"    {index}. "
-                            f"<b>"
+                            f"    {index}. <b>"
                             f"{self._escape_html(url)}"
-                            f"</b>"
+                            "</b>"
                         )
                     )
 
@@ -318,12 +222,11 @@ class TelegramPublisher:
                 cloud_links,
                 start=1,
             ):
-
                 lines.append(
                     (
                         f"<b>{index}. "
                         f"{self._escape_html(url)}"
-                        f"</b>"
+                        "</b>"
                     )
                 )
 
@@ -336,9 +239,9 @@ class TelegramPublisher:
                 [
                     "",
                     (
-                        f"<b>"
+                        "<b>"
                         f"{self._escape_html(section)}"
-                        f"</b>"
+                        "</b>"
                     ),
                 ]
             )
@@ -347,12 +250,11 @@ class TelegramPublisher:
                 urls,
                 start=1,
             ):
-
                 lines.append(
                     (
                         f"<b>{index}. "
                         f"{self._escape_html(url)}"
-                        f"</b>"
+                        "</b>"
                     )
                 )
 
@@ -369,17 +271,26 @@ class TelegramPublisher:
                 watch_online_links,
                 start=1,
             ):
-
                 lines.append(
                     (
                         f"<b>{index}. "
                         f"{self._escape_html(url)}"
-                        f"</b>"
+                        "</b>"
                     )
                 )
 
-        message = "\n".join(
-            lines
+        return "\n".join(lines)
+
+    def publish_post(
+        self,
+        title: str,
+        movie_url: str,
+        download_links: list[dict] | None = None,
+    ) -> dict:
+
+        message = self.build_links_message(
+            title=title,
+            download_links=download_links,
         )
 
         return self.send_message(
