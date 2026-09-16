@@ -286,7 +286,7 @@ class RSSBot:
             return
 
         await update.effective_message.reply_text(
-            f"🔎 Searching for: {keyword}"
+            f"<b>🔎 Searching for: {keyword}</b>"
         )
 
         try:
@@ -368,11 +368,11 @@ class RSSBot:
             return
 
         text = (
-            "🔎 <b>Sky Movies Search</b>\n\n"
-            f"Keyword: <code>"
+            "✅ <b>Result Successfully Fetch</b>\n\n"
+            f"✨ Result Of: <code>"
             f"{self.publisher._escape_html(keyword)}"
             f"</code>\n\n"
-            "Select a movie:"
+            "Select Your Movies:"
         )
 
         await update.effective_message.reply_text(
