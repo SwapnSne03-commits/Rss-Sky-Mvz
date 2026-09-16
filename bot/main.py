@@ -1,16 +1,11 @@
 import logging
+import threading
 import time
-import uuid
 
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
-    CallbackQueryHandler,
     ContextTypes,
 )
 
@@ -24,7 +19,6 @@ from .config import (
 from .database import Database
 from .publisher import TelegramPublisher
 from .scraper import WebsiteScraper
-
 
 logging.basicConfig(
     level=logging.INFO,
@@ -674,33 +668,30 @@ class RSSBot:
 
         return successfully_published
 
-    def run(
-        self,
-    ):
-
-        logger.info(
-            "RSS-Sky-Mvz bot started."
-        )
-
+    def run(self):
+        logger.info("RSS-Sky-Mvz bot started.")
         logger.info(
             "Check interval: %d seconds",
             CHECK_INTERVAL,
         )
 
-        while True:
+        def worker():
+            while True:
+                try:
+                    self.process_cycle()
+                except Exception:
+                    logger.exception(
+                        "Unexpected error in processing cycle."
+                    )
 
-            try:
-                self.process_cycle()
+                time.sleep(CHECK_INTERVAL)
 
-            except Exception:
-                logger.exception(
-                    "Unexpected error in processing cycle."
-                )
+        threading.Thread(
+            target=worker,
+            daemon=True,
+        ).start()
 
-            time.sleep(
-                CHECK_INTERVAL
-            )
-
+        self.telegram_app.run_polling()
 
 def main():
 
