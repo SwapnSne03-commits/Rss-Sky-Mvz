@@ -1,3 +1,4 @@
+import logging
 import re
 import requests
 
@@ -13,30 +14,28 @@ from .config import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 class WebsiteScraper:
     def __init__(self):
         self.session = requests.Session()
-
-        self.session.headers.update(
-            {
-                "User-Agent": USER_AGENT,
-                "Accept": (
-                    "text/html,application/xhtml+xml,"
-                    "application/xml;q=0.9,image/avif,"
-                    "image/webp,*/*;q=0.8"
-                ),
-                "Accept-Language": "en-US,en;q=0.9",
-            }
-        )
+        self.session.headers.update({
+            "User-Agent": USER_AGENT,
+            "Accept": (
+                "text/html,application/xhtml+xml,"
+                "application/xml;q=0.9,image/avif,"
+                "image/webp,*/*;q=0.8"
+            ),
+            "Accept-Language": "en-US,en;q=0.9",
+        })
 
     def fetch(self, url: str) -> str:
         response = self.session.get(
             url,
             timeout=REQUEST_TIMEOUT,
         )
-
         response.raise_for_status()
-
         return response.text
 
     def get_homepage(self) -> str:
@@ -45,34 +44,17 @@ class WebsiteScraper:
     @staticmethod
     def _clean_host(host: str) -> str:
         host = host.lower().strip()
-
         if host.startswith("www."):
             host = host[4:]
-
         return host.split(":", 1)[0]
 
     @staticmethod
     def _clean_text(text: str) -> str:
-        return " ".join(
-            text.split()
-        ).strip()
+        return " ".join(text.split()).strip()
 
     @staticmethod
     def _is_quality_text(text: str) -> bool:
-        """
-        Detect quality-specific section names.
-
-        Examples:
-        720P 10Bit HEVC LINK
-        1080P 10Bit HEVC LINK
-        1080p WEB-DL
-        2160p HEVC
-        2160p SDR HEVC LINK
-        """
-
-        text = " ".join(
-            text.split()
-        ).strip()
+        text = " ".join(text.split()).strip()
 
         if not text:
             return False
@@ -112,38 +94,22 @@ class WebsiteScraper:
 
     @staticmethod
     def _is_watch_online_url(url: str) -> bool:
-        """
-        Detect direct Watch Online links.
-
-        Example:
-        https://tpead.net/v/A4LZoQ1aKecXAxP
-        """
-
         try:
             parsed = urlparse(url)
         except Exception:
             return False
 
-        if parsed.scheme not in (
-            "http",
-            "https",
-        ):
+        if parsed.scheme not in ("http", "https"):
             return False
 
-        hostname = (
-            parsed.netloc
-            .lower()
-            .strip()
-        )
+        hostname = parsed.netloc.lower().strip()
 
         if hostname.startswith("www."):
             hostname = hostname[4:]
 
         return (
             hostname == "tpead.net"
-            or hostname.endswith(
-                ".tpead.net"
-            )
+            or hostname.endswith(".tpead.net")
         )
 
     def _get_allowed_host_name(
@@ -151,25 +117,18 @@ class WebsiteScraper:
         hostname: str,
     ) -> str | None:
 
-        hostname = self._clean_host(
-            hostname
-        )
+        hostname = self._clean_host(hostname)
 
         if not hostname:
             return None
 
         for domain, display_name in ALLOWED_HOSTS.items():
-
-            domain = self._clean_host(
-                domain
-            )
+            domain = self._clean_host(domain)
 
             if hostname == domain:
                 return display_name
 
-            if hostname.endswith(
-                "." + domain
-            ):
+            if hostname.endswith("." + domain):
                 return display_name
 
             if domain in hostname:
@@ -177,27 +136,18 @@ class WebsiteScraper:
 
         return None
 
-    def _is_allowed_url(
-        self,
-        url: str,
-    ) -> bool:
-
+    def _is_allowed_url(self, url: str) -> bool:
         try:
             parsed = urlparse(url)
         except Exception:
             return False
 
-        if parsed.scheme not in (
-            "http",
-            "https",
-        ):
+        if parsed.scheme not in ("http", "https"):
             return False
-
-        hostname = parsed.netloc
 
         return (
             self._get_allowed_host_name(
-                hostname
+                parsed.netloc
             )
             is not None
         )
@@ -207,32 +157,13 @@ class WebsiteScraper:
         page_url: str,
         section: str | None = None,
     ) -> list[dict]:
-        """
-        Open an intermediary/quality page and extract
-        only configured allowed file-host links.
 
-        If section is supplied, extracted links receive
-        that quality section.
+        html = self.fetch(page_url)
 
-        For normal Server links, section is intentionally
-        left empty so they remain under All Cloud Links.
-        """
-
-        html = self.fetch(
-            page_url
-        )
-
-        soup = BeautifulSoup(
-            html,
-            "lxml",
-        )
+        soup = BeautifulSoup(html, "lxml")
 
         links = []
         seen_urls = set()
-
-        # -------------------------------------------------
-        # Check final URL after redirects
-        # -------------------------------------------------
 
         try:
             response = self.session.get(
@@ -243,19 +174,13 @@ class WebsiteScraper:
 
             final_url = response.url
 
-            if self._is_allowed_url(
-                final_url
-            ):
+            if self._is_allowed_url(final_url):
                 host = self._clean_host(
-                    urlparse(
-                        final_url
-                    ).netloc
+                    urlparse(final_url).netloc
                 )
 
                 display_name = (
-                    self._get_allowed_host_name(
-                        host
-                    )
+                    self._get_allowed_host_name(host)
                     or host
                 )
 
@@ -268,27 +193,14 @@ class WebsiteScraper:
                     item["section"] = section
 
                 links.append(item)
-
-                seen_urls.add(
-                    final_url
-                )
+                seen_urls.add(final_url)
 
         except requests.RequestException:
             pass
 
-        # -------------------------------------------------
-        # Extract normal <a href=""> links
-        # -------------------------------------------------
+        for link in soup.find_all("a", href=True):
 
-        for link in soup.find_all(
-            "a",
-            href=True,
-        ):
-
-            href = link.get(
-                "href",
-                "",
-            ).strip()
+            href = link.get("href", "").strip()
 
             if not href:
                 continue
@@ -306,18 +218,12 @@ class WebsiteScraper:
             if absolute_url in seen_urls:
                 continue
 
-            parsed = urlparse(
-                absolute_url
-            )
-
             hostname = self._clean_host(
-                parsed.netloc
+                urlparse(absolute_url).netloc
             )
 
             display_name = (
-                self._get_allowed_host_name(
-                    hostname
-                )
+                self._get_allowed_host_name(hostname)
                 or hostname
             )
 
@@ -329,10 +235,7 @@ class WebsiteScraper:
             if section:
                 item["section"] = section
 
-            seen_urls.add(
-                absolute_url
-            )
-
+            seen_urls.add(absolute_url)
             links.append(item)
 
         return links
@@ -343,21 +246,6 @@ class WebsiteScraper:
         soup,
         seen_final_urls: set,
     ) -> list[dict]:
-        """
-        Detect clickable quality links directly from
-        the movie page.
-
-        Example:
-
-        720P 10Bit HEVC LINK
-                ↓
-        https://howblogs.xyz/e31cd0
-                ↓
-        allowed file-share links
-
-        The extracted file links are assigned to the
-        original quality text.
-        """
 
         quality_links = []
 
@@ -394,8 +282,6 @@ class WebsiteScraper:
                 href,
             )
 
-            # Do not treat a direct file-host URL
-            # as a quality intermediary page.
             if self._is_allowed_url(
                 quality_url
             ):
@@ -426,9 +312,7 @@ class WebsiteScraper:
                     continue
 
                 final_host = self._clean_host(
-                    urlparse(
-                        url
-                    ).netloc
+                    urlparse(url).netloc
                 )
 
                 display_name = (
@@ -446,13 +330,8 @@ class WebsiteScraper:
                     "section": quality_text,
                 }
 
-                seen_final_urls.add(
-                    url
-                )
-
-                quality_links.append(
-                    result
-                )
+                seen_final_urls.add(url)
+                quality_links.append(result)
 
         return quality_links
 
@@ -461,9 +340,7 @@ class WebsiteScraper:
         movie_url: str,
     ) -> list[dict]:
 
-        html = self.fetch(
-            movie_url
-        )
+        html = self.fetch(movie_url)
 
         soup = BeautifulSoup(
             html,
@@ -478,10 +355,6 @@ class WebsiteScraper:
             PROTECTED_LINK_DOMAIN
         )
 
-        # =================================================
-        # 1. QUALITY-SPECIFIC LINKS
-        # =================================================
-
         quality_links = (
             self._extract_quality_links(
                 movie_url,
@@ -490,13 +363,7 @@ class WebsiteScraper:
             )
         )
 
-        final_links.extend(
-            quality_links
-        )
-
-        # =================================================
-        # 2. ALL OTHER LINKS ON MOVIE PAGE
-        # =================================================
+        final_links.extend(quality_links)
 
         for link in soup.find_all(
             "a",
@@ -516,19 +383,13 @@ class WebsiteScraper:
                 href,
             )
 
-            parsed = urlparse(
-                absolute_url
-            )
+            parsed = urlparse(absolute_url)
 
             if parsed.scheme not in (
                 "http",
                 "https",
             ):
                 continue
-
-            # ---------------------------------------------
-            # WATCH ONLINE
-            # ---------------------------------------------
 
             if self._is_watch_online_url(
                 absolute_url
@@ -547,21 +408,12 @@ class WebsiteScraper:
                     absolute_url
                 )
 
-                final_links.append(
-                    result
-                )
-
+                final_links.append(result)
                 continue
 
             hostname = self._clean_host(
                 parsed.netloc
             )
-
-            # ---------------------------------------------
-            # Skip clickable quality links.
-            #
-            # They were already processed above.
-            # ---------------------------------------------
 
             link_text = self._clean_text(
                 link.get_text(
@@ -575,11 +427,6 @@ class WebsiteScraper:
             ):
                 continue
 
-            # ---------------------------------------------
-            # Only process configured protected/server
-            # intermediary links.
-            # ---------------------------------------------
-
             if hostname != protected_host:
                 continue
 
@@ -589,26 +436,6 @@ class WebsiteScraper:
             seen_intermediary_urls.add(
                 absolute_url
             )
-
-            # -------------------------------------------------
-            # IMPORTANT:
-            #
-            # Normal Server 01 / Server 02 / Server 03...
-            # links MUST NOT inherit a quality section.
-            #
-            # Previously _find_quality_section() was used here.
-            # That caused texts such as:
-            #
-            # WATCH ONLINE
-            # SERVER 01
-            # SERVER 02
-            # 1080P 10Bit HEVC LINK
-            #
-            # to get mixed into the section detection.
-            #
-            # These normal server links belong to
-            # All Cloud Links.
-            # -------------------------------------------------
 
             try:
                 extracted_links = (
@@ -635,12 +462,9 @@ class WebsiteScraper:
                     continue
 
                 final_host = self._clean_host(
-                    urlparse(
-                        url
-                    ).netloc
+                    urlparse(url).netloc
                 )
 
-                # Never return the protected server itself.
                 if final_host == protected_host:
                     continue
 
@@ -653,25 +477,13 @@ class WebsiteScraper:
                 if not display_name:
                     continue
 
-                # -------------------------------------------------
-                # NO SECTION HERE.
-                #
-                # This guarantees that normal Server links
-                # go to All Cloud Links in Publisher.py.
-                # -------------------------------------------------
-
                 result = {
                     "url": url,
                     "host": display_name,
                 }
 
-                seen_final_urls.add(
-                    url
-                )
-
-                final_links.append(
-                    result
-                )
+                seen_final_urls.add(url)
+                final_links.append(result)
 
         return final_links
 
@@ -688,9 +500,7 @@ class WebsiteScraper:
         seen_urls = set()
 
         site_host = self._clean_host(
-            urlparse(
-                SITE_URL
-            ).netloc
+            urlparse(SITE_URL).netloc
         )
 
         for link in soup.find_all(
@@ -715,13 +525,11 @@ class WebsiteScraper:
                 absolute_url
             )
 
-            # Only links from our own website.
             if self._clean_host(
                 parsed_url.netloc
             ) != site_host:
                 continue
 
-            # Only movie pages.
             if "/movie/" not in (
                 parsed_url.path.lower()
             ):
@@ -738,9 +546,7 @@ class WebsiteScraper:
             if not title:
                 continue
 
-            seen_urls.add(
-                absolute_url
-            )
+            seen_urls.add(absolute_url)
 
             try:
                 download_links = (
@@ -761,3 +567,104 @@ class WebsiteScraper:
             )
 
         return posts
+
+    # =====================================================
+    # SKY MOVIES SEARCH
+    # =====================================================
+
+    def search_movies(
+        self,
+        keyword: str,
+    ) -> list[dict]:
+
+        keyword = self._clean_text(keyword)
+
+        if not keyword:
+            return []
+
+        search_url = (
+            f"{SITE_URL}/search.php"
+            f"?search={requests.utils.quote(keyword)}"
+            f"&cat=All"
+        )
+
+        logger.info(
+            "Searching Sky Movies: %s",
+            keyword,
+        )
+
+        html = self.fetch(search_url)
+
+        soup = BeautifulSoup(
+            html,
+            "lxml",
+        )
+
+        results = []
+        seen_urls = set()
+
+        site_host = self._clean_host(
+            urlparse(SITE_URL).netloc
+        )
+
+        for link in soup.find_all(
+            "a",
+            href=True,
+        ):
+
+            href = link.get(
+                "href",
+                "",
+            ).strip()
+
+            if not href:
+                continue
+
+            absolute_url = urljoin(
+                SITE_URL + "/",
+                href,
+            )
+
+            parsed_url = urlparse(
+                absolute_url
+            )
+
+            if self._clean_host(
+                parsed_url.netloc
+            ) != site_host:
+                continue
+
+            if "/movie/" not in (
+                parsed_url.path.lower()
+            ):
+                continue
+
+            if absolute_url in seen_urls:
+                continue
+
+            title = self._clean_text(
+                link.get_text(
+                    " ",
+                    strip=True,
+                )
+            )
+
+            if not title:
+                continue
+
+            seen_urls.add(absolute_url)
+
+            results.append(
+                {
+                    "title": title,
+                    "url": absolute_url,
+                }
+            )
+
+        logger.info(
+            "Sky Movies search returned %d results for: %s",
+            len(results),
+            keyword,
+        )
+
+        return results
