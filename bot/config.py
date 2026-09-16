@@ -16,6 +16,11 @@ CHANNEL_ID = os.getenv(
     "",
 ).strip()
 
+
+# =====================================================
+# ADMIN CONFIGURATION
+# =====================================================
+
 ADMIN_IDS = {
     int(user_id.strip())
     for user_id in os.getenv(
@@ -24,6 +29,11 @@ ADMIN_IDS = {
     ).split(",")
     if user_id.strip().isdigit()
 }
+
+
+# =====================================================
+# SKY RSS CONFIGURATION
+# =====================================================
 
 SITE_URL = os.getenv(
     "SITE_URL",
@@ -47,8 +57,10 @@ REQUEST_TIMEOUT = int(
 )
 
 
-# GitHub repository used for persistent
-# source-post tracking.
+# =====================================================
+# GITHUB PERSISTENT STATE
+# =====================================================
+
 GITHUB_TOKEN = os.getenv(
     "GITHUB_TOKEN",
     "",
@@ -64,18 +76,28 @@ GITHUB_STATE_FILE = os.getenv(
     "data/processed_posts.json",
 ).strip()
 
+
+# =====================================================
+# SKY AUTHORIZED GROUPS
+# =====================================================
+
 SKY_AUTHORIZED_GROUPS_FILE = os.getenv(
     "SKY_AUTHORIZED_GROUPS_FILE",
     "data/sky_authorized_groups.json",
 ).strip()
 
-# Protected-link/intermediary service
-# used by the website.
+
+# =====================================================
+# PROTECTED LINK SERVICE
+# =====================================================
+
 PROTECTED_LINK_DOMAIN = "howblogs.xyz"
 
 
-# Only these file-hosts should finally
-# appear in Telegram.
+# =====================================================
+# ALLOWED FILE HOSTS
+# =====================================================
+
 ALLOWED_HOSTS = {
     "gofile.io": "Gofile",
     "vikingfile.com": "VikingFile",
@@ -87,12 +109,20 @@ ALLOWED_HOSTS = {
 }
 
 
+# =====================================================
+# HTTP USER AGENT
+# =====================================================
+
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/131.0.0.0 Safari/537.36"
 )
 
+
+# =====================================================
+# CONFIG VALIDATION
+# =====================================================
 
 def validate_config() -> None:
     """Validate required environment variables."""
@@ -105,6 +135,11 @@ def validate_config() -> None:
     if not CHANNEL_ID:
         raise RuntimeError(
             "CHANNEL_ID is missing from the environment."
+        )
+
+    if not ADMIN_IDS:
+        raise RuntimeError(
+            "ADMIN_IDS is missing or contains no valid Telegram user IDs."
         )
 
     if not GITHUB_TOKEN:
