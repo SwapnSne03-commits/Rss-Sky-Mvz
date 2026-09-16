@@ -26,7 +26,6 @@ from .database import Database
 from .publisher import TelegramPublisher
 from .scraper import WebsiteScraper
 
-
 logging.basicConfig(
     level=logging.INFO,
     format=(
@@ -258,10 +257,7 @@ class RSSBot:
         context: ContextTypes.DEFAULT_TYPE,
     ) -> None:
 
-        if (
-            not self.is_admin(update)
-            and not self.is_sky_group_authorized(update)
-        ):
+        if not self.is_sky_group_authorized(update):
 
             if update.effective_message:
                 await update.effective_message.reply_text(
@@ -285,7 +281,7 @@ class RSSBot:
             )
             return
 
-        await update.effective_message.reply_text(
+        searching_msg = await update.effective_message.reply_text(
             f"🔎 Searching for: {keyword}"
         )
 
@@ -297,6 +293,11 @@ class RSSBot:
             )
 
         except Exception:
+            try:
+                await searching_msg.delete()
+            except Exception:
+                pass
+
             logger.exception(
                 "Sky Movies search failed: %s",
                 keyword,
@@ -308,6 +309,11 @@ class RSSBot:
             )
 
             return
+
+        try:
+            await searching_msg.delete()
+        except Exception:
+            pass
 
         if not results:
 
@@ -403,6 +409,7 @@ class RSSBot:
         await query.answer()
 
         data = query.data or ""
+
         parts = data.split(":")
 
         if len(parts) != 3:
@@ -453,10 +460,10 @@ class RSSBot:
             )
             return
 
-        progress_message = None
+        getting_msg = None
 
         if query.message:
-            progress_message = await query.message.reply_text(
+            getting_msg = await query.message.reply_text(
                 f"⏳ Getting links for:\n"
                 f"<b>{self.publisher._escape_html(title)}</b>",
                 parse_mode="HTML",
@@ -474,37 +481,15 @@ class RSSBot:
                 )
             )
 
-            if not download_links:
-
-                if query.message:
-                    await query.message.reply_text(
-                        "❌ No allowed download links found."
-                    )
-
-                return
-
-            message = (
-                self.publisher.build_links_message(
-                    title=title,
-                    download_links=download_links,
-                )
-            )
-
-            if query.message:
-                await query.message.reply_text(
-                    message,
-                    parse_mode="HTML",
-                    disable_web_page_preview=True,
-                )
-
-            logger.info(
-                "Sky Search movie links sent: %s",
-                title,
-            )
-
         except Exception:
+            if getting_msg:
+                try:
+                    await getting_msg.delete()
+                except Exception:
+                    pass
+
             logger.exception(
-                "Failed to process movie links: %s",
+                "Failed to extract movie links: %s",
                 movie_url,
             )
 
@@ -514,14 +499,55 @@ class RSSBot:
                     "Please try again later."
                 )
 
-        finally:
-            if progress_message:
-                try:
-                    await progress_message.delete()
-                except Exception:
-                    logger.exception(
-                        "Failed to delete progress message."
-                    )
+            return
+
+        if getting_msg:
+            try:
+                await getting_msg.delete()
+            except Exception:
+                pass
+
+        if not download_links:
+
+            if query.message:
+                await query.message.reply_text(
+                    "❌ No allowed download links found."
+                )
+
+            return
+
+        try:
+            message = (
+                self.publisher.build_links_message(
+                    title=title,
+                    download_links=download_links,
+                )
+            )
+
+        except Exception:
+            logger.exception(
+                "Failed to build links message: %s",
+                movie_url,
+            )
+
+            if query.message:
+                await query.message.reply_text(
+                    "❌ Failed to prepare movie links."
+                )
+
+            return
+
+        if query.message:
+            await query.message.reply_text(
+                message,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+
+        logger.info(
+            "Sky Search movie links sent: %s",
+            title,
+        )
 
     def _register_handlers(
         self,
