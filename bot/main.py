@@ -2,11 +2,7 @@ import logging
 import time
 import uuid
 
-from telegram import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Update,
-)
+from telegram import Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -28,11 +24,7 @@ from .scraper import WebsiteScraper
 
 logging.basicConfig(
     level=logging.INFO,
-    format=(
-        "%(asctime)s | "
-        "%(levelname)s | "
-        "%(message)s"
-    ),
+    format="%(asctime)s | %(levelname)s | %(message)s",
 )
 
 logger = logging.getLogger(__name__)
@@ -46,7 +38,7 @@ class RSSBot:
         self.database = Database()
         self.publisher = TelegramPublisher()
 
-        self.search_results = {}
+        self.sky_search_cache = {}
 
         self.telegram_app = (
             Application.builder()
@@ -56,15 +48,8 @@ class RSSBot:
 
         self._register_handlers()
 
-    # =====================================================
-    # ADMIN AUTHORIZATION
-    # =====================================================
-
     @staticmethod
-    def is_admin(
-        update: Update,
-    ) -> bool:
-
+    def is_admin(update: Update) -> bool:
         user = update.effective_user
 
         if not user:
@@ -82,10 +67,6 @@ class RSSBot:
             await update.effective_message.reply_text(
                 "⛔ You are not authorized to use this command."
             )
-
-    # =====================================================
-    # GROUP AUTHORIZATION
-    # =====================================================
 
     def is_group_chat(
         self,
@@ -122,10 +103,6 @@ class RSSBot:
             chat.id
         )
 
-    # =====================================================
-    # SKY ADD
-    # =====================================================
-
     async def cmd_sky_add(
         self,
         update: Update,
@@ -140,13 +117,11 @@ class RSSBot:
             return
 
         if not self.is_group_chat(update):
-
             if update.effective_message:
                 await update.effective_message.reply_text(
                     "⚠️ This command can only be used inside "
                     "a group or supergroup."
                 )
-
             return
 
         chat = update.effective_chat
@@ -162,42 +137,27 @@ class RSSBot:
             )
 
         except Exception:
-
             logger.exception(
-                "Failed to authorize Sky Search group: %s",
-                chat.id,
+                "Failed to authorize group."
             )
 
-            if update.effective_message:
-                await update.effective_message.reply_text(
-                    "❌ Failed to authorize this group.\n"
-                    "Please try again later."
-                )
+            await update.effective_message.reply_text(
+                "❌ Failed to authorize this group."
+            )
 
-            return
-
-        if not update.effective_message:
             return
 
         if added:
-
             await update.effective_message.reply_text(
                 "✅ <b>Sky Search Authorized</b>\n\n"
                 "This group can now use "
                 "<code>/sky_search</code>.",
                 parse_mode="HTML",
             )
-
         else:
-
             await update.effective_message.reply_text(
-                "ℹ️ This group is already authorized "
-                "for Sky Search."
+                "ℹ️ This group is already authorized."
             )
-
-    # =====================================================
-    # SKY REMOVE
-    # =====================================================
 
     async def cmd_sky_remove(
         self,
@@ -213,13 +173,11 @@ class RSSBot:
             return
 
         if not self.is_group_chat(update):
-
             if update.effective_message:
                 await update.effective_message.reply_text(
                     "⚠️ This command can only be used inside "
                     "a group or supergroup."
                 )
-
             return
 
         chat = update.effective_chat
@@ -235,43 +193,25 @@ class RSSBot:
             )
 
         except Exception:
-
             logger.exception(
-                "Failed to remove Sky Search group: %s",
-                chat.id,
+                "Failed to remove group authorization."
             )
 
-            if update.effective_message:
-                await update.effective_message.reply_text(
-                    "❌ Failed to remove this group's "
-                    "Sky Search authorization.\n"
-                    "Please try again later."
-                )
+            await update.effective_message.reply_text(
+                "❌ Failed to remove authorization."
+            )
 
-            return
-
-        if not update.effective_message:
             return
 
         if removed:
-
             await update.effective_message.reply_text(
-                "✅ <b>Sky Search Authorization Removed</b>\n\n"
-                "This group can no longer use "
-                "<code>/sky_search</code>.",
+                "✅ <b>Sky Search Authorization Removed</b>",
                 parse_mode="HTML",
             )
-
         else:
-
             await update.effective_message.reply_text(
-                "ℹ️ This group was not authorized "
-                "for Sky Search."
+                "ℹ️ This group was not authorized."
             )
-
-    # =====================================================
-    # SKY SEARCH
-    # =====================================================
 
     async def cmd_sky_search(
         self,
@@ -280,16 +220,10 @@ class RSSBot:
     ) -> None:
 
         if not self.is_sky_group_authorized(update):
-
-            if update.effective_message:
-                await update.effective_message.reply_text(
-                    "⛔ This group is not authorized "
-                    "to use Sky Search."
-                )
-
-            return
-
-        if not update.effective_message:
+            await update.effective_message.reply_text(
+                "⛔ This group is not authorized "
+                "to use Sky Search."
+            )
             return
 
         keyword = " ".join(
@@ -297,137 +231,79 @@ class RSSBot:
         ).strip()
 
         if not keyword:
-
             await update.effective_message.reply_text(
-                "Usage:\n"
-                "/sky_search movie name"
+                "Usage:\n/sky_search movie name"
             )
-
             return
 
         await update.effective_message.reply_text(
             f"🔎 Searching for: {keyword}"
         )
 
-        logger.info(
-            "Sky Search requested: %s",
-            keyword,
-        )
-
         try:
-
-            results = (
-                self.scraper.search_movies(
-                    keyword
-                )
+            results = self.scraper.search_movies(
+                keyword
             )
 
         except Exception:
-
             logger.exception(
-                "Sky Movies search failed: %s",
-                keyword,
+                "Sky Movies search failed."
             )
 
             await update.effective_message.reply_text(
                 "❌ Search failed.\n"
                 "Please try again later."
             )
-
             return
 
         if not results:
-
             await update.effective_message.reply_text(
-                (
-                    "❌ No results found for:\n"
-                    f"<code>"
-                    f"{self.publisher._escape_html(keyword)}"
-                    f"</code>"
-                ),
+                "❌ No results found for:\n"
+                f"<code>"
+                f"{self.publisher._escape_html(keyword)}"
+                f"</code>",
                 parse_mode="HTML",
             )
-
             return
 
-        result_id = uuid.uuid4().hex
+        callbacks = []
 
-        self.search_results[result_id] = {
-            "chat_id": update.effective_chat.id,
-            "user_id": update.effective_user.id,
-            "keyword": keyword,
-            "results": results,
-        }
+        for result in results:
 
-        keyboard = []
+            token = uuid.uuid4().hex[:16]
 
-        for index, result in enumerate(
-            results,
-            start=1,
-        ):
+            self.sky_search_cache[
+                token
+            ] = {
+                "chat_id": update.effective_chat.id,
+                "title": result["title"],
+                "url": result["url"],
+            }
 
-            title = result.get(
-                "title",
-                "",
-            ).strip()
-
-            if not title:
-                continue
-
-            callback_data = (
-                f"skyselect:{result_id}:{index - 1}"
+            callbacks.append(
+                f"sky_movie:{token}"
             )
 
-            keyboard.append(
-                [
-                    InlineKeyboardButton(
-                        f"{index}. {title[:50]}",
-                        callback_data=callback_data,
-                    )
-                ]
+        if len(self.sky_search_cache) > 1000:
+            self.sky_search_cache.clear()
+
+        try:
+            self.publisher.send_search_results(
+                keyword=keyword,
+                results=results,
+                callback_data=callbacks,
             )
 
-        if not keyboard:
+        except Exception:
+            logger.exception(
+                "Failed to send search results."
+            )
 
             await update.effective_message.reply_text(
-                "❌ No valid results found."
+                "❌ Failed to send search results."
             )
 
-            self.search_results.pop(
-                result_id,
-                None,
-            )
-
-            return
-
-        text = (
-            "🔎 <b>Sky Movies Search</b>\n\n"
-            "Keyword: "
-            f"<code>"
-            f"{self.publisher._escape_html(keyword)}"
-            f"</code>\n\n"
-            "Select a movie:"
-        )
-
-        await update.effective_message.reply_text(
-            text,
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(
-                keyboard
-            ),
-        )
-
-        logger.info(
-            "Sky Search results sent: %s | Results: %d",
-            keyword,
-            len(keyboard),
-        )
-
-    # =====================================================
-    # SKY SEARCH RESULT CALLBACK
-    # =====================================================
-
-    async def callback_sky_select(
+    async def callback_sky_movie(
         self,
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
@@ -438,210 +314,94 @@ class RSSBot:
         if not query:
             return
 
-        await query.answer()
+        await query.answer(
+            "Loading movie links..."
+        )
 
-        user = update.effective_user
-        chat = update.effective_chat
+        data = query.data or ""
 
-        if not user or not chat:
+        if not data.startswith(
+            "sky_movie:"
+        ):
             return
 
-        if chat.type not in (
-            "group",
-            "supergroup",
-        ):
+        token = data.split(
+            ":",
+            1,
+        )[1]
 
-            await query.answer(
-                "This action is only available in groups.",
-                show_alert=True,
+        item = self.sky_search_cache.get(
+            token
+        )
+
+        if not item:
+            await query.message.reply_text(
+                "❌ This search result has expired."
             )
+            return
 
+        chat = update.effective_chat
+
+        if not chat:
+            return
+
+        if chat.id != item["chat_id"]:
             return
 
         if not self.database.is_group_authorized(
             chat.id
         ):
-
-            await query.answer(
-                "This group is not authorized.",
-                show_alert=True,
+            await query.message.reply_text(
+                "⛔ This group is no longer authorized."
             )
-
             return
 
-        data = query.data or ""
-
-        if not data.startswith(
-            "skyselect:"
-        ):
-            return
-
-        parts = data.split(
-            ":",
-            2,
-        )
-
-        if len(parts) != 3:
-            return
-
-        result_id = parts[1]
-        index_text = parts[2]
+        title = item["title"]
+        movie_url = item["url"]
 
         try:
-            index = int(
-                index_text
-            )
-
-        except ValueError:
-            await query.answer(
-                "Invalid selection.",
-                show_alert=True,
-            )
-            return
-
-        search_data = self.search_results.get(
-            result_id
-        )
-
-        if not search_data:
-
-            await query.answer(
-                "This search result has expired.",
-                show_alert=True,
-            )
-
-            return
-
-        if search_data.get(
-            "chat_id"
-        ) != chat.id:
-
-            await query.answer(
-                "This result belongs to another chat.",
-                show_alert=True,
-            )
-
-            return
-
-        results = search_data.get(
-            "results",
-            [],
-        )
-
-        if index < 0 or index >= len(results):
-
-            await query.answer(
-                "Invalid movie selection.",
-                show_alert=True,
-            )
-
-            return
-
-        selected_movie = results[index]
-
-        title = selected_movie.get(
-            "title",
-            "",
-        ).strip()
-
-        movie_url = selected_movie.get(
-            "url",
-            "",
-        ).strip()
-
-        if not title or not movie_url:
-
-            await query.answer(
-                "Movie information is unavailable.",
-                show_alert=True,
-            )
-
-            return
-
-        logger.info(
-            "Sky Search movie selected: %s | %s",
-            title,
-            movie_url,
-        )
-
-        if query.message:
-
-            await query.message.edit_text(
-                (
-                    "🎬 <b>Selected Movie</b>\n\n"
-                    f"<b>{self.publisher._escape_html(title)}</b>\n\n"
-                    "⏳ Extracting available links..."
-                ),
-                parse_mode="HTML",
-            )
-
-        try:
-
-            download_links = (
-                self.scraper.get_download_links(
-                    movie_url
-                )
+            links = self.scraper.get_download_links(
+                movie_url
             )
 
         except Exception:
-
             logger.exception(
-                "Failed to extract movie links: %s",
-                movie_url,
+                "Failed to extract movie links."
             )
 
-            if query.message:
-                await query.message.edit_text(
-                    (
-                        "❌ Failed to extract links.\n"
-                        "Please try again later."
-                    )
-                )
-
+            await query.message.reply_text(
+                "❌ Failed to get movie links.\n"
+                "Please try again later."
+            )
             return
 
-        if not download_links:
-
-            if query.message:
-                await query.message.edit_text(
-                    (
-                        "❌ No allowed download links "
-                        "were found for this movie."
-                    )
-                )
-
+        if not links:
+            await query.message.reply_text(
+                "❌ No allowed file-host links found."
+            )
             return
 
-        logger.info(
-            "Movie link extraction completed: %s | Links: %d",
-            title,
-            len(download_links),
-        )
-
-        if query.message:
-
-            await query.message.edit_text(
-                (
-                    "✅ <b>Movie Selected</b>\n\n"
-                    f"<b>{self.publisher._escape_html(title)}</b>\n\n"
-                    f"Found <b>{len(download_links)}</b> "
-                    "available links."
-                ),
-                parse_mode="HTML",
+        try:
+            message = self.publisher.build_post_message(
+                title=title,
+                download_links=links,
             )
 
-        self.search_results.pop(
-            result_id,
-            None,
-        )
+            self.publisher.send_to_chat(
+                chat_id=chat.id,
+                text=message,
+            )
 
-    # =====================================================
-    # COMMAND REGISTRATION
-    # =====================================================
+        except Exception:
+            logger.exception(
+                "Failed to send movie links."
+            )
 
-    def _register_handlers(
-        self,
-    ) -> None:
+            await query.message.reply_text(
+                "❌ Failed to send movie links."
+            )
+
+    def _register_handlers(self) -> None:
 
         self.telegram_app.add_handler(
             CommandHandler(
@@ -666,41 +426,25 @@ class RSSBot:
 
         self.telegram_app.add_handler(
             CallbackQueryHandler(
-                self.callback_sky_select,
-                pattern=r"^skyselect:",
+                self.callback_sky_movie,
+                pattern=r"^sky_movie:",
             )
         )
 
-    # =====================================================
-    # WEBSITE PROCESSING
-    # =====================================================
-
-    def process_cycle(
-        self,
-    ) -> int:
+    def process_cycle(self) -> int:
 
         logger.info(
             "Starting website check..."
         )
 
         try:
-
-            posts = (
-                self.scraper.get_latest_posts()
-            )
+            posts = self.scraper.get_latest_posts()
 
         except Exception:
-
             logger.exception(
                 "Failed to scrape website."
             )
-
             return 0
-
-        logger.info(
-            "Found %d source posts.",
-            len(posts),
-        )
 
         new_posts = []
 
@@ -722,39 +466,15 @@ class RSSBot:
             if self.database.post_exists(
                 movie_url
             ):
-
-                logger.info(
-                    "Already processed source post: %s",
-                    movie_url,
-                )
-
                 continue
 
             if not download_links:
-
-                logger.info(
-                    "No allowed file-host links found: %s",
-                    movie_url,
-                )
-
                 continue
 
-            new_posts.append(
-                post
-            )
+            new_posts.append(post)
 
         if not new_posts:
-
-            logger.info(
-                "No new source posts found."
-            )
-
             return 0
-
-        logger.info(
-            "New source posts to process: %d",
-            len(new_posts),
-        )
 
         successfully_published = 0
 
@@ -775,13 +495,7 @@ class RSSBot:
                 [],
             )
 
-            logger.info(
-                "Publishing new source post: %s",
-                title,
-            )
-
             try:
-
                 result = (
                     self.publisher.publish_post(
                         title=title,
@@ -791,109 +505,52 @@ class RSSBot:
                 )
 
             except Exception:
-
                 logger.exception(
                     "Telegram publishing failed: %s",
                     movie_url,
                 )
-
                 continue
 
-            if not result.get(
-                "ok"
-            ):
-
-                logger.error(
-                    "Telegram API returned failure: %s",
-                    movie_url,
-                )
-
+            if not result.get("ok"):
                 continue
-
-            logger.info(
-                "Telegram publishing successful: %s",
-                title,
-            )
 
             try:
-
-                saved = (
-                    self.database.save_post(
-                        post_url=movie_url,
-                        title=title,
-                    )
+                saved = self.database.save_post(
+                    post_url=movie_url,
+                    title=title,
                 )
-
-                if saved:
-
-                    logger.info(
-                        "Source post recorded: %s",
-                        movie_url,
-                    )
-
-                else:
-
-                    logger.info(
-                        "Source post was already recorded: %s",
-                        movie_url,
-                    )
 
             except Exception:
-
                 logger.exception(
-                    "Failed to record source post: %s",
-                    movie_url,
+                    "Failed to record source post."
                 )
-
                 continue
 
-            successfully_published += 1
-
-        logger.info(
-            "Cycle completed. "
-            "Successfully published: %d",
-            successfully_published,
-        )
+            if saved:
+                successfully_published += 1
 
         return successfully_published
 
-    # =====================================================
-    # BOT RUNNER
-    # =====================================================
-
-    def run(
-        self,
-    ):
+    def run(self):
 
         logger.info(
             "RSS-Sky-Mvz bot started."
         )
 
-        logger.info(
-            "Check interval: %d seconds",
-            CHECK_INTERVAL,
-        )
-
         while True:
 
             try:
-
                 self.process_cycle()
 
             except Exception:
-
                 logger.exception(
-                    "Unexpected error in processing cycle."
+                    "Unexpected processing error."
                 )
-
-            logger.info(
-                "Sleeping for %d seconds...",
-                CHECK_INTERVAL,
-            )
 
             time.sleep(
                 CHECK_INTERVAL
             )
+
 
 def main():
 
