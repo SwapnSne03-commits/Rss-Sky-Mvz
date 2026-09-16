@@ -16,6 +16,14 @@ CHANNEL_ID = os.getenv(
     "",
 ).strip()
 
+ADMIN_IDS = {
+    int(user_id.strip())
+    for user_id in os.getenv(
+        "ADMIN_IDS",
+        "",
+    ).split(",")
+    if user_id.strip().isdigit()
+}
 
 SITE_URL = os.getenv(
     "SITE_URL",
