@@ -1,9 +1,15 @@
 import logging
 import time
+import uuid
 
-from telegram import Update
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update,
+)
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
 )
@@ -39,6 +45,8 @@ class RSSBot:
         self.scraper = WebsiteScraper()
         self.database = Database()
         self.publisher = TelegramPublisher()
+
+        self.search_results = {}
 
         self.telegram_app = (
             Application.builder()
@@ -146,19 +154,18 @@ class RSSBot:
         if not chat:
             return
 
-        chat_id = chat.id
-
         try:
             added = (
                 self.database.add_authorized_group(
-                    chat_id
+                    chat.id
                 )
             )
 
         except Exception:
+
             logger.exception(
                 "Failed to authorize Sky Search group: %s",
-                chat_id,
+                chat.id,
             )
 
             if update.effective_message:
@@ -179,11 +186,6 @@ class RSSBot:
                 "This group can now use "
                 "<code>/sky_search</code>.",
                 parse_mode="HTML",
-            )
-
-            logger.info(
-                "Sky Search group authorized: %s",
-                chat_id,
             )
 
         else:
@@ -225,19 +227,18 @@ class RSSBot:
         if not chat:
             return
 
-        chat_id = chat.id
-
         try:
             removed = (
                 self.database.remove_authorized_group(
-                    chat_id
+                    chat.id
                 )
             )
 
         except Exception:
+
             logger.exception(
-                "Failed to remove Sky Search authorization: %s",
-                chat_id,
+                "Failed to remove Sky Search group: %s",
+                chat.id,
             )
 
             if update.effective_message:
@@ -259,11 +260,6 @@ class RSSBot:
                 "This group can no longer use "
                 "<code>/sky_search</code>.",
                 parse_mode="HTML",
-            )
-
-            logger.info(
-                "Sky Search group authorization removed: %s",
-                chat_id,
             )
 
         else:
@@ -354,19 +350,16 @@ class RSSBot:
 
             return
 
-        lines = [
-            "🔎 <b>Sky Movies Search</b>",
-            "",
-            (
-                "Keyword: "
-                f"<code>"
-                f"{self.publisher._escape_html(keyword)}"
-                f"</code>"
-            ),
-            "",
-        ]
+        result_id = uuid.uuid4().hex
 
-        result_count = 0
+        self.search_results[result_id] = {
+            "chat_id": update.effective_chat.id,
+            "user_id": update.effective_user.id,
+            "keyword": keyword,
+            "results": results,
+        }
+
+        keyboard = []
 
         for index, result in enumerate(
             results,
@@ -378,44 +371,268 @@ class RSSBot:
                 "",
             ).strip()
 
-            url = result.get(
-                "url",
-                "",
-            ).strip()
-
-            if not title or not url:
+            if not title:
                 continue
 
-            result_count += 1
-
-            lines.append(
-                (
-                    f"<b>{index}. "
-                    f"{self.publisher._escape_html(title)}</b>\n"
-                    f"{self.publisher._escape_html(url)}"
-                )
+            callback_data = (
+                f"skyselect:{result_id}:{index - 1}"
             )
 
-            lines.append("")
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"{index}. {title[:50]}",
+                        callback_data=callback_data,
+                    )
+                ]
+            )
 
-        if result_count == 0:
+        if not keyboard:
 
             await update.effective_message.reply_text(
                 "❌ No valid results found."
             )
 
+            self.search_results.pop(
+                result_id,
+                None,
+            )
+
             return
 
+        text = (
+            "🔎 <b>Sky Movies Search</b>\n\n"
+            "Keyword: "
+            f"<code>"
+            f"{self.publisher._escape_html(keyword)}"
+            f"</code>\n\n"
+            "Select a movie:"
+        )
+
         await update.effective_message.reply_text(
-            "\n".join(lines).strip(),
+            text,
             parse_mode="HTML",
-            disable_web_page_preview=True,
+            reply_markup=InlineKeyboardMarkup(
+                keyboard
+            ),
         )
 
         logger.info(
-            "Sky Search completed: %s | Results: %d",
+            "Sky Search results sent: %s | Results: %d",
             keyword,
-            result_count,
+            len(keyboard),
+        )
+
+    # =====================================================
+    # SKY SEARCH RESULT CALLBACK
+    # =====================================================
+
+    async def callback_sky_select(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+
+        query = update.callback_query
+
+        if not query:
+            return
+
+        await query.answer()
+
+        user = update.effective_user
+        chat = update.effective_chat
+
+        if not user or not chat:
+            return
+
+        if chat.type not in (
+            "group",
+            "supergroup",
+        ):
+
+            await query.answer(
+                "This action is only available in groups.",
+                show_alert=True,
+            )
+
+            return
+
+        if not self.database.is_group_authorized(
+            chat.id
+        ):
+
+            await query.answer(
+                "This group is not authorized.",
+                show_alert=True,
+            )
+
+            return
+
+        data = query.data or ""
+
+        if not data.startswith(
+            "skyselect:"
+        ):
+            return
+
+        parts = data.split(
+            ":",
+            2,
+        )
+
+        if len(parts) != 3:
+            return
+
+        result_id = parts[1]
+        index_text = parts[2]
+
+        try:
+            index = int(
+                index_text
+            )
+
+        except ValueError:
+            await query.answer(
+                "Invalid selection.",
+                show_alert=True,
+            )
+            return
+
+        search_data = self.search_results.get(
+            result_id
+        )
+
+        if not search_data:
+
+            await query.answer(
+                "This search result has expired.",
+                show_alert=True,
+            )
+
+            return
+
+        if search_data.get(
+            "chat_id"
+        ) != chat.id:
+
+            await query.answer(
+                "This result belongs to another chat.",
+                show_alert=True,
+            )
+
+            return
+
+        results = search_data.get(
+            "results",
+            [],
+        )
+
+        if index < 0 or index >= len(results):
+
+            await query.answer(
+                "Invalid movie selection.",
+                show_alert=True,
+            )
+
+            return
+
+        selected_movie = results[index]
+
+        title = selected_movie.get(
+            "title",
+            "",
+        ).strip()
+
+        movie_url = selected_movie.get(
+            "url",
+            "",
+        ).strip()
+
+        if not title or not movie_url:
+
+            await query.answer(
+                "Movie information is unavailable.",
+                show_alert=True,
+            )
+
+            return
+
+        logger.info(
+            "Sky Search movie selected: %s | %s",
+            title,
+            movie_url,
+        )
+
+        if query.message:
+
+            await query.message.edit_text(
+                (
+                    "🎬 <b>Selected Movie</b>\n\n"
+                    f"<b>{self.publisher._escape_html(title)}</b>\n\n"
+                    "⏳ Extracting available links..."
+                ),
+                parse_mode="HTML",
+            )
+
+        try:
+
+            download_links = (
+                self.scraper.get_download_links(
+                    movie_url
+                )
+            )
+
+        except Exception:
+
+            logger.exception(
+                "Failed to extract movie links: %s",
+                movie_url,
+            )
+
+            if query.message:
+                await query.message.edit_text(
+                    (
+                        "❌ Failed to extract links.\n"
+                        "Please try again later."
+                    )
+                )
+
+            return
+
+        if not download_links:
+
+            if query.message:
+                await query.message.edit_text(
+                    (
+                        "❌ No allowed download links "
+                        "were found for this movie."
+                    )
+                )
+
+            return
+
+        logger.info(
+            "Movie link extraction completed: %s | Links: %d",
+            title,
+            len(download_links),
+        )
+
+        if query.message:
+
+            await query.message.edit_text(
+                (
+                    "✅ <b>Movie Selected</b>\n\n"
+                    f"<b>{self.publisher._escape_html(title)}</b>\n\n"
+                    f"Found <b>{len(download_links)}</b> "
+                    "available links."
+                ),
+                parse_mode="HTML",
+            )
+
+        self.search_results.pop(
+            result_id,
+            None,
         )
 
     # =====================================================
@@ -444,6 +661,13 @@ class RSSBot:
             CommandHandler(
                 "sky_search",
                 self.cmd_sky_search,
+            )
+        )
+
+        self.telegram_app.add_handler(
+            CallbackQueryHandler(
+                self.callback_sky_select,
+                pattern=r"^skyselect:",
             )
         )
 
@@ -670,7 +894,6 @@ class RSSBot:
             time.sleep(
                 CHECK_INTERVAL
             )
-
 
 def main():
 
