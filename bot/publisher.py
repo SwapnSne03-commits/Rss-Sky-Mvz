@@ -1,5 +1,7 @@
 import requests
 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
 from .config import (
     BOT_TOKEN,
     CHANNEL_ID,
@@ -40,11 +42,6 @@ class TelegramPublisher:
 
     @staticmethod
     def _escape_html(text: str) -> str:
-        """
-        Escape characters that have special meaning
-        in Telegram HTML parse mode.
-        """
-
         return (
             text
             .replace("&", "&amp;")
@@ -81,6 +78,84 @@ class TelegramPublisher:
 
         return result
 
+    def send_search_results(
+        self,
+        keyword: str,
+        results: list[dict],
+        callback_data: list[str],
+    ) -> dict:
+
+        self._check_config()
+
+        keyword = keyword.strip()
+
+        buttons = []
+
+        for index, result in enumerate(
+            results
+        ):
+
+            if index >= len(callback_data):
+                break
+
+            title = result.get(
+                "title",
+                "",
+            ).strip()
+
+            callback = callback_data[
+                index
+            ]
+
+            if not title or not callback:
+                continue
+
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        text=title,
+                        callback_data=callback,
+                    )
+                ]
+            )
+
+        if not buttons:
+            raise ValueError(
+                "No valid search results found."
+            )
+
+        text = (
+            "🔎 <b>Results for "
+            f"{self._escape_html(keyword)}:</b>"
+        )
+
+        response = requests.post(
+            self._api_url("sendMessage"),
+            data={
+                "chat_id": self.channel_id,
+                "text": text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+                "reply_markup": (
+                    InlineKeyboardMarkup(
+                        buttons
+                    ).to_json()
+                ),
+            },
+            timeout=REQUEST_TIMEOUT,
+        )
+
+        response.raise_for_status()
+
+        result = response.json()
+
+        if not result.get("ok"):
+            raise RuntimeError(
+                f"Telegram API error: {result}"
+            )
+
+        return result
+
     def publish_post(
         self,
         title: str,
@@ -94,26 +169,13 @@ class TelegramPublisher:
             download_links or []
         )
 
-        # -------------------------------------------------
-        # LINK STORAGE
-        # -------------------------------------------------
-
         gofile_url = ""
-
         other_gofile_links = []
-
         cloud_links = []
-
         quality_sections = {}
-
         watch_online_links = []
 
-        # Global duplicate protection.
         seen_urls = set()
-
-        # -------------------------------------------------
-        # PROCESS ALL LINKS
-        # -------------------------------------------------
 
         for link in download_links:
 
@@ -141,45 +203,26 @@ class TelegramPublisher:
             if not url:
                 continue
 
-            # -------------------------------------------------
-            # GLOBAL DUPLICATE CHECK
-            # -------------------------------------------------
-
             if url in seen_urls:
                 continue
 
-            seen_urls.add(
-                url
-            )
-
-            # -------------------------------------------------
-            # GOFILE
-            # -------------------------------------------------
+            seen_urls.add(url)
 
             if host == "gofile":
 
-                # First GoFile remains the main GoFile link.
                 if not gofile_url:
-
                     gofile_url = url
-
                 else:
-
-                    # Any additional unique GoFile links
-                    # go into Others Gofile Links.
                     other_gofile_links.append(
                         url
                     )
 
                 continue
 
-            # -------------------------------------------------
-            # WATCH ONLINE
-            # -------------------------------------------------
-
             if (
                 host == "watch_online"
-                or section.upper() == "WATCH ONLINE"
+                or section.upper()
+                == "WATCH ONLINE"
             ):
 
                 watch_online_links.append(
@@ -188,37 +231,22 @@ class TelegramPublisher:
 
                 continue
 
-            # -------------------------------------------------
-            # QUALITY-SPECIFIC LINKS
-            # -------------------------------------------------
-
             if section:
 
                 if section not in quality_sections:
-
                     quality_sections[
                         section
                     ] = []
 
                 quality_sections[
                     section
-                ].append(
-                    url
-                )
+                ].append(url)
 
                 continue
-
-            # -------------------------------------------------
-            # NORMAL SERVER / CLOUD LINKS
-            # -------------------------------------------------
 
             cloud_links.append(
                 url
             )
-
-        # -------------------------------------------------
-        # CHECK WHETHER ANYTHING WAS FOUND
-        # -------------------------------------------------
 
         if (
             not gofile_url
@@ -231,10 +259,6 @@ class TelegramPublisher:
                 "No allowed file-host links found."
             )
 
-        # -------------------------------------------------
-        # HEADER + TITLE
-        # -------------------------------------------------
-
         lines = [
             "<b>🎬 New Post Just Dropped! ✅</b>",
             "",
@@ -245,10 +269,6 @@ class TelegramPublisher:
                 f"</code>"
             ),
         ]
-
-        # -------------------------------------------------
-        # MAIN GOFILE
-        # -------------------------------------------------
 
         if gofile_url:
 
@@ -265,17 +285,10 @@ class TelegramPublisher:
                 ]
             )
 
-            # -------------------------------------------------
-            # OTHER GOFILE LINKS
-            # -------------------------------------------------
-
             if other_gofile_links:
 
                 lines.append(
-                    (
-                        "  ↳ "
-                        "<b>Others Gofile Links</b>"
-                    )
+                    "  ↳ <b>Others Gofile Links</b>"
                 )
 
                 for index, url in enumerate(
@@ -291,10 +304,6 @@ class TelegramPublisher:
                             f"</b>"
                         )
                     )
-
-        # -------------------------------------------------
-        # ALL CLOUD LINKS
-        # -------------------------------------------------
 
         if cloud_links:
 
@@ -317,10 +326,6 @@ class TelegramPublisher:
                         f"</b>"
                     )
                 )
-
-        # -------------------------------------------------
-        # QUALITY-SPECIFIC LINKS
-        # -------------------------------------------------
 
         for section, urls in quality_sections.items():
 
@@ -351,10 +356,6 @@ class TelegramPublisher:
                     )
                 )
 
-        # -------------------------------------------------
-        # WATCH ONLINE
-        # -------------------------------------------------
-
         if watch_online_links:
 
             lines.extend(
@@ -377,14 +378,10 @@ class TelegramPublisher:
                     )
                 )
 
-        # -------------------------------------------------
-        # FINAL MESSAGE
-        # -------------------------------------------------
-
         message = "\n".join(
             lines
         )
 
         return self.send_message(
             message
-                )
+                    )
