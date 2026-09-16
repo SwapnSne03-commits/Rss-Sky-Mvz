@@ -91,21 +91,39 @@ class RSSBot:
     def _register_handlers(self) -> None:
         """
         Register Telegram command handlers.
-
-        Actual admin commands will be added step by step.
         """
 
-        # Foundation placeholder.
-        #
-        # Future examples:
-        #
-        # self.telegram_app.add_handler(
-        #     CommandHandler("status", self.cmd_status)
-        # )
-        #
-        # self.telegram_app.add_handler(
-        #     CommandHandler("pause", self.cmd_pause)
-        # )
+        self.telegram_app.add_handler(
+            CommandHandler(
+                "admin",
+                self.cmd_admin,
+            )
+        )
+
+    # =====================================================
+    # ADMIN COMMAND
+    # =====================================================
+
+    async def cmd_admin(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        """
+        Test command for the admin authorization system.
+        """
+
+        if not self.is_admin(update):
+            await self.unauthorized(
+                update,
+                context,
+            )
+            return
+
+        if update.effective_message:
+            await update.effective_message.reply_text(
+                "✅ Admin authorization verified."
+            )
 
     # =====================================================
     # WEBSITE PROCESSING
