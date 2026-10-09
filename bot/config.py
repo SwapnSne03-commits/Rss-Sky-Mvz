@@ -40,6 +40,10 @@ SITE_URL = os.getenv(
     "https://skymovieshd.forex",
 ).rstrip("/")
 
+DOMAIN_SOURCE_URL = os.getenv(
+    "DOMAIN_SOURCE_URL",
+    "https://skybap.site",
+).rstrip("/")
 
 CHECK_INTERVAL = int(
     os.getenv(
