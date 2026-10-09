@@ -7,6 +7,7 @@ from urllib.parse import urljoin, urlparse
 
 from .config import (
     SITE_URL,
+    DOMAIN_SOURCE_URL,
     REQUEST_TIMEOUT,
     USER_AGENT,
     PROTECTED_LINK_DOMAIN,
