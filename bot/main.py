@@ -590,6 +590,8 @@ class RSSBot:
         )
 
         try:
+            site_url = self.scraper.resolve_site_url()
+            logger.info("Current Sky Movies domain: %s", site_url)
             posts = (
                 self.scraper.get_latest_posts()
             )
