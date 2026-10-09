@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 class WebsiteScraper:
     def __init__(self):
+        self.site_url = SITE_URL.rstrip("/")
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": USER_AGENT,
@@ -39,9 +40,6 @@ class WebsiteScraper:
         response.raise_for_status()
         return response.text
 
-    def get_homepage(self) -> str:
-        return self.fetch(SITE_URL)
-
     @staticmethod
     def _clean_host(host: str) -> str:
         host = host.lower().strip()
@@ -52,6 +50,90 @@ class WebsiteScraper:
     @staticmethod
     def _clean_text(text: str) -> str:
         return " ".join(text.split()).strip()
+
+    def resolve_site_url(self) -> str:
+        try:
+            html = self.fetch(DOMAIN_SOURCE_URL)
+            soup = BeautifulSoup(html, "lxml")
+
+            for link in soup.find_all("a", href=True):
+                href = link.get("href", "").strip()
+                if not href:
+                    continue
+
+                url = urljoin(DOMAIN_SOURCE_URL + "/", href)
+                parsed = urlparse(url)
+                hostname = self._clean_host(parsed.netloc)
+                text = self._clean_text(
+                    link.get_text(" ", strip=True)
+                ).lower()
+
+                if (
+                    parsed.scheme in ("http", "https")
+                    and hostname.endswith((
+                        ".skymovieshd.lgbt",
+                        ".skymovieshd.forex",
+                    ))
+                ):
+                    continue
+
+                if (
+                    parsed.scheme not in ("http", "https")
+                    or not hostname.startswith("skymovieshd.")
+                    or hostname == "skymovieshd."
+                    or not (
+                        "skymovieshd" in text
+                        or "click here" in text
+                        or "visit" in text
+                    )
+                ):
+                    continue
+
+                domain = f"{parsed.scheme}://{parsed.netloc}"
+
+                try:
+                    check = self.session.get(
+                        domain,
+                        timeout=REQUEST_TIMEOUT,
+                        allow_redirects=True,
+                    )
+                    check.raise_for_status()
+
+                    final_url = urlparse(check.url)
+                    final_host = self._clean_host(final_url.netloc)
+
+                    if (
+                        final_url.scheme not in ("http", "https")
+                        or not final_host.startswith("skymovieshd.")
+                        or final_host == "skymovieshd."
+                    ):
+                        continue
+
+                    self.site_url = (
+                        f"{final_url.scheme}://{final_url.netloc}"
+                    ).rstrip("/")
+
+                    logger.info(
+                        "Resolved Sky Movies domain: %s",
+                        self.site_url,
+                    )
+                    return self.site_url
+
+                except requests.RequestException:
+                    continue
+
+            logger.warning(
+                "Could not find a working Sky Movies domain on source page."
+            )
+
+        except requests.RequestException as exc:
+            logger.warning("Domain discovery failed: %s", exc)
+
+        return self.site_url
+
+    def get_homepage(self) -> str:
+        self.resolve_site_url()
+        return self.fetch(self.site_url)
 
     @staticmethod
     def _is_quality_text(text: str) -> bool:
@@ -89,9 +171,7 @@ class WebsiteScraper:
             re.IGNORECASE | re.VERBOSE,
         )
 
-        return bool(
-            quality_pattern.search(text)
-        )
+        return bool(quality_pattern.search(text))
 
     @staticmethod
     def _is_watch_online_url(url: str) -> bool:
@@ -117,7 +197,6 @@ class WebsiteScraper:
         self,
         hostname: str,
     ) -> str | None:
-
         hostname = self._clean_host(hostname)
 
         if not hostname:
@@ -126,13 +205,11 @@ class WebsiteScraper:
         for domain, display_name in ALLOWED_HOSTS.items():
             domain = self._clean_host(domain)
 
-            if hostname == domain:
-                return display_name
-
-            if hostname.endswith("." + domain):
-                return display_name
-
-            if domain in hostname:
+            if (
+                hostname == domain
+                or hostname.endswith("." + domain)
+                or domain in hostname
+            ):
                 return display_name
 
         return None
@@ -147,9 +224,7 @@ class WebsiteScraper:
             return False
 
         return (
-            self._get_allowed_host_name(
-                parsed.netloc
-            )
+            self._get_allowed_host_name(parsed.netloc)
             is not None
         )
 
@@ -158,11 +233,8 @@ class WebsiteScraper:
         page_url: str,
         section: str | None = None,
     ) -> list[dict]:
-
         html = self.fetch(page_url)
-
         soup = BeautifulSoup(html, "lxml")
-
         links = []
         seen_urls = set()
 
@@ -176,18 +248,10 @@ class WebsiteScraper:
             final_url = response.url
 
             if self._is_allowed_url(final_url):
-                host = self._clean_host(
-                    urlparse(final_url).netloc
-                )
-
-                display_name = (
-                    self._get_allowed_host_name(host)
-                    or host
-                )
-
+                host = self._clean_host(urlparse(final_url).netloc)
                 item = {
                     "url": final_url,
-                    "host": display_name,
+                    "host": self._get_allowed_host_name(host) or host,
                 }
 
                 if section:
@@ -200,20 +264,14 @@ class WebsiteScraper:
             pass
 
         for link in soup.find_all("a", href=True):
-
             href = link.get("href", "").strip()
 
             if not href:
                 continue
 
-            absolute_url = urljoin(
-                page_url,
-                href,
-            )
+            absolute_url = urljoin(page_url, href)
 
-            if not self._is_allowed_url(
-                absolute_url
-            ):
+            if not self._is_allowed_url(absolute_url):
                 continue
 
             if absolute_url in seen_urls:
@@ -223,14 +281,9 @@ class WebsiteScraper:
                 urlparse(absolute_url).netloc
             )
 
-            display_name = (
-                self._get_allowed_host_name(hostname)
-                or hostname
-            )
-
             item = {
                 "url": absolute_url,
-                "host": display_name,
+                "host": self._get_allowed_host_name(hostname) or hostname,
             }
 
             if section:
@@ -247,92 +300,53 @@ class WebsiteScraper:
         soup,
         seen_final_urls: set,
     ) -> list[dict]:
-
         quality_links = []
 
-        for link in soup.find_all(
-            "a",
-            href=True,
-        ):
-
+        for link in soup.find_all("a", href=True):
             quality_text = self._clean_text(
-                link.get_text(
-                    " ",
-                    strip=True,
-                )
+                link.get_text(" ", strip=True)
             )
 
-            if not quality_text:
+            if not self._is_quality_text(quality_text):
                 continue
 
-            if not self._is_quality_text(
-                quality_text
-            ):
-                continue
-
-            href = link.get(
-                "href",
-                "",
-            ).strip()
+            href = link.get("href", "").strip()
 
             if not href:
                 continue
 
-            quality_url = urljoin(
-                movie_url,
-                href,
-            )
+            quality_url = urljoin(movie_url, href)
 
-            if self._is_allowed_url(
-                quality_url
-            ):
+            if self._is_allowed_url(quality_url):
                 continue
 
             try:
-                extracted_links = (
-                    self._extract_allowed_links(
-                        quality_url,
-                        section=quality_text,
-                    )
+                extracted_links = self._extract_allowed_links(
+                    quality_url,
+                    section=quality_text,
                 )
-
             except requests.RequestException:
                 continue
 
             for item in extracted_links:
+                url = item.get("url", "").strip()
 
-                url = item.get(
-                    "url",
-                    "",
-                ).strip()
-
-                if not url:
+                if not url or url in seen_final_urls:
                     continue
 
-                if url in seen_final_urls:
-                    continue
-
-                final_host = self._clean_host(
+                display_name = self._get_allowed_host_name(
                     urlparse(url).netloc
-                )
-
-                display_name = (
-                    self._get_allowed_host_name(
-                        final_host
-                    )
                 )
 
                 if not display_name:
                     continue
 
-                result = {
+                quality_links.append({
                     "url": url,
                     "host": display_name,
                     "section": quality_text,
-                }
-
+                })
                 seen_final_urls.add(url)
-                quality_links.append(result)
 
         return quality_links
 
@@ -340,92 +354,52 @@ class WebsiteScraper:
         self,
         movie_url: str,
     ) -> list[dict]:
-
         html = self.fetch(movie_url)
-
-        soup = BeautifulSoup(
-            html,
-            "lxml",
-        )
+        soup = BeautifulSoup(html, "lxml")
 
         final_links = []
         seen_final_urls = set()
         seen_intermediary_urls = set()
 
-        protected_host = self._clean_host(
-            PROTECTED_LINK_DOMAIN
-        )
+        protected_host = self._clean_host(PROTECTED_LINK_DOMAIN)
 
-        quality_links = (
-            self._extract_quality_links(
-                movie_url,
-                soup,
-                seen_final_urls,
-            )
+        quality_links = self._extract_quality_links(
+            movie_url,
+            soup,
+            seen_final_urls,
         )
-
         final_links.extend(quality_links)
 
-        for link in soup.find_all(
-            "a",
-            href=True,
-        ):
-
-            href = link.get(
-                "href",
-                "",
-            ).strip()
+        for link in soup.find_all("a", href=True):
+            href = link.get("href", "").strip()
 
             if not href:
                 continue
 
-            absolute_url = urljoin(
-                movie_url,
-                href,
-            )
-
+            absolute_url = urljoin(movie_url, href)
             parsed = urlparse(absolute_url)
 
-            if parsed.scheme not in (
-                "http",
-                "https",
-            ):
+            if parsed.scheme not in ("http", "https"):
                 continue
 
-            if self._is_watch_online_url(
-                absolute_url
-            ):
-
+            if self._is_watch_online_url(absolute_url):
                 if absolute_url in seen_final_urls:
                     continue
 
-                result = {
+                final_links.append({
                     "url": absolute_url,
                     "host": "watch_online",
                     "section": "WATCH ONLINE",
-                }
-
-                seen_final_urls.add(
-                    absolute_url
-                )
-
-                final_links.append(result)
+                })
+                seen_final_urls.add(absolute_url)
                 continue
 
-            hostname = self._clean_host(
-                parsed.netloc
-            )
-
+            hostname = self._clean_host(parsed.netloc)
             link_text = self._clean_text(
-                link.get_text(
-                    " ",
-                    strip=True,
-                )
+                link.get_text(" ", strip=True)
             )
 
-            if self._is_quality_text(
-                link_text
-            ):
+            if self._is_quality_text(link_text):
                 continue
 
             if hostname != protected_host:
@@ -434,32 +408,20 @@ class WebsiteScraper:
             if absolute_url in seen_intermediary_urls:
                 continue
 
-            seen_intermediary_urls.add(
-                absolute_url
-            )
+            seen_intermediary_urls.add(absolute_url)
 
             try:
-                extracted_links = (
-                    self._extract_allowed_links(
-                        absolute_url,
-                        section=None,
-                    )
+                extracted_links = self._extract_allowed_links(
+                    absolute_url,
+                    section=None,
                 )
-
             except requests.RequestException:
                 continue
 
             for item in extracted_links:
+                url = item.get("url", "").strip()
 
-                url = item.get(
-                    "url",
-                    "",
-                ).strip()
-
-                if not url:
-                    continue
-
-                if url in seen_final_urls:
+                if not url or url in seen_final_urls:
                     continue
 
                 final_host = self._clean_host(
@@ -469,80 +431,48 @@ class WebsiteScraper:
                 if final_host == protected_host:
                     continue
 
-                display_name = (
-                    self._get_allowed_host_name(
-                        final_host
-                    )
-                )
+                display_name = self._get_allowed_host_name(final_host)
 
                 if not display_name:
                     continue
 
-                result = {
+                final_links.append({
                     "url": url,
                     "host": display_name,
-                }
-
+                })
                 seen_final_urls.add(url)
-                final_links.append(result)
 
         return final_links
 
     def get_latest_posts(self) -> list[dict]:
-
         html = self.get_homepage()
-
-        soup = BeautifulSoup(
-            html,
-            "lxml",
-        )
+        soup = BeautifulSoup(html, "lxml")
 
         posts = []
         seen_urls = set()
-
         site_host = self._clean_host(
-            urlparse(SITE_URL).netloc
+            urlparse(self.site_url).netloc
         )
 
-        for link in soup.find_all(
-            "a",
-            href=True,
-        ):
-
-            href = link.get(
-                "href",
-                "",
-            ).strip()
+        for link in soup.find_all("a", href=True):
+            href = link.get("href", "").strip()
 
             if not href:
                 continue
 
-            absolute_url = urljoin(
-                SITE_URL + "/",
-                href,
-            )
+            absolute_url = urljoin(self.site_url + "/", href)
+            parsed_url = urlparse(absolute_url)
 
-            parsed_url = urlparse(
-                absolute_url
-            )
-
-            if self._clean_host(
-                parsed_url.netloc
-            ) != site_host:
+            if self._clean_host(parsed_url.netloc) != site_host:
                 continue
 
-            if "/movie/" not in (
-                parsed_url.path.lower()
-            ):
+            if "/movie/" not in parsed_url.path.lower():
                 continue
 
             if absolute_url in seen_urls:
                 continue
 
-            title = link.get_text(
-                " ",
-                strip=True,
-            )
+            title = link.get_text(" ", strip=True)
 
             if not title:
                 continue
@@ -550,117 +480,73 @@ class WebsiteScraper:
             seen_urls.add(absolute_url)
 
             try:
-                download_links = (
-                    self.get_download_links(
-                        absolute_url
-                    )
-                )
-
+                download_links = self.get_download_links(absolute_url)
             except requests.RequestException:
                 download_links = []
 
-            posts.append(
-                {
-                    "title": title,
-                    "url": absolute_url,
-                    "download_links": download_links,
-                }
-            )
+            posts.append({
+                "title": title,
+                "url": absolute_url,
+                "download_links": download_links,
+            })
 
         return posts
 
-    # =====================================================
-    # SKY MOVIES SEARCH
-    # =====================================================
-
-    def search_movies(
-        self,
-        keyword: str,
-    ) -> list[dict]:
-
+    def search_movies(self, keyword: str) -> list[dict]:
         keyword = self._clean_text(keyword)
 
         if not keyword:
             return []
 
+        self.resolve_site_url()
+
         search_url = (
-            f"{SITE_URL}/search.php"
+            f"{self.site_url}/search.php"
             f"?search={requests.utils.quote(keyword)}"
             f"&cat=All"
         )
 
-        logger.info(
-            "Searching Sky Movies: %s",
-            keyword,
-        )
+        logger.info("Searching Sky Movies: %s", keyword)
 
         html = self.fetch(search_url)
-
-        soup = BeautifulSoup(
-            html,
-            "lxml",
-        )
+        soup = BeautifulSoup(html, "lxml")
 
         results = []
         seen_urls = set()
-
         site_host = self._clean_host(
-            urlparse(SITE_URL).netloc
+            urlparse(self.site_url).netloc
         )
 
-        for link in soup.find_all(
-            "a",
-            href=True,
-        ):
-
-            href = link.get(
-                "href",
-                "",
-            ).strip()
+        for link in soup.find_all("a", href=True):
+            href = link.get("href", "").strip()
 
             if not href:
                 continue
 
-            absolute_url = urljoin(
-                SITE_URL + "/",
-                href,
-            )
+            absolute_url = urljoin(self.site_url + "/", href)
+            parsed_url = urlparse(absolute_url)
 
-            parsed_url = urlparse(
-                absolute_url
-            )
-
-            if self._clean_host(
-                parsed_url.netloc
-            ) != site_host:
+            if self._clean_host(parsed_url.netloc) != site_host:
                 continue
 
-            if "/movie/" not in (
-                parsed_url.path.lower()
-            ):
+            if "/movie/" not in parsed_url.path.lower():
                 continue
 
             if absolute_url in seen_urls:
                 continue
 
             title = self._clean_text(
-                link.get_text(
-                    " ",
-                    strip=True,
-                )
+                link.get_text(" ", strip=True)
             )
 
             if not title:
                 continue
 
             seen_urls.add(absolute_url)
-
-            results.append(
-                {
-                    "title": title,
-                    "url": absolute_url,
-                }
-            )
+            results.append({
+                "title": title,
+                "url": absolute_url,
+            })
 
         logger.info(
             "Sky Movies search returned %d results for: %s",
